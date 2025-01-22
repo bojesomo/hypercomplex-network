@@ -15,6 +15,17 @@ If using this code, please cite
   keywords={Training;Convolution;Algebra;Quaternions;Image processing;Data processing;Spatiotemporal phenomena},
   doi={10.1109/MSP.2024.3381808}}
 
+@article{bojesomo2023octonion,
+  author={Bojesomo, Alabi and Liatsis, Panos and Almarzouqi, Hasan},
+  journal={IEEE Geoscience and Remote Sensing Letters}, 
+  title={Marine Debris Segmentation Using a Parameter Efficient Octonion-Based Architecture}, 
+  year={2023},
+  volume={20},
+  number={},
+  pages={1-5},
+  keywords={Convolution;Plastics;Neural networks;Computer architecture;Deep learning;Marine vehicles;Feature extraction;Hypercomplex numbers;marine debris image segmentation;octonion neural networks (ONNs)},
+  doi={10.1109/LGRS.2023.3321177}}
+
 @article{bojesomo2020traffic,
       title={Traffic flow prediction using Deep Sedenion Networks}, 
       author={Alabi Bojesomo and Hasan Al-Marzouqi and Panos Liatsis },
