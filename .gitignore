@@ -6,3 +6,4 @@ cache/
 feats/
 data/*.csv
 .pytest_cache/
+pretrained/

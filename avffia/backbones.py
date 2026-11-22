@@ -193,8 +193,76 @@ class TimmAudioBackbone(Backbone):
         return [(f.mean(-1) + f.amax(-1)).transpose(1, 2) for f in self.net(self.frontend(wav))]
 
 
+class _PannsConvBlock(nn.Module):
+    def __init__(self, cin, cout):
+        super().__init__()
+        self.conv1 = nn.Conv2d(cin, cout, 3, 1, 1, bias=False)
+        self.conv2 = nn.Conv2d(cout, cout, 3, 1, 1, bias=False)
+        self.bn1, self.bn2 = nn.BatchNorm2d(cout), nn.BatchNorm2d(cout)
+
+    def forward(self, x, pool=(2, 2)):
+        x = F.relu_(self.bn2(self.conv2(F.relu_(self.bn1(self.conv1(x))))))
+        return F.avg_pool2d(x, pool)
+
+
+class PannsBackbone(Backbone):
+    """PANNs CNN10 / CNN14 (Kong et al., TASLP 2020). AudioSet-pretrained CNN10 is the strongest
+    audio model on AV-FFIA in the U-FFIA benchmark (Pre-CNN10: 0.859 accuracy) and is the
+    U-FFIA audio teacher.
+
+    The layer names follow the official ``audioset_tagging_cnn`` code, so the released
+    checkpoints (``Cnn10_mAP=0.380.pth``, ``Cnn14_mAP=0.431.pth`` from Zenodo 3987831) load
+    directly through ``checkpoint=``. Their own STFT and mel extractors are skipped: our
+    ``LogMel`` front-end must use 64 mel bins (``bn0`` is 64-wide). Stage tokens are the
+    outputs of the last four conv blocks.
+    """
+
+    _WIDTHS = {'cnn10': (64, 128, 256, 512), 'cnn14': (64, 128, 256, 512, 1024, 2048)}
+
+    def __init__(self, model_name='cnn10', checkpoint: Optional[str] = None, frontend: Optional[dict] = None,
+                 dropout=0.2, **kw):
+        super().__init__(**kw)
+        fe = {'sample_rate': 64000, 'n_fft': 2048, 'hop': 512, 'n_mels': 64, 'fmin': 50.0, **(frontend or {})}
+        fe['normalize'] = None  # PANNs normalises with its own bn0
+        assert fe['n_mels'] == 64, 'PANNs bn0 expects 64 mel bins'
+        self.frontend = LogMel(**fe)
+        self.bn0 = nn.BatchNorm2d(64)
+        widths = self._WIDTHS[model_name]
+        cin = 1
+        for i, w in enumerate(widths):
+            setattr(self, f'conv_block{i + 1}', _PannsConvBlock(cin, w))
+            cin = w
+        self.n_blocks, self.dropout = len(widths), dropout
+        self.stage_dims = list(widths[-4:])
+        if checkpoint:
+            sd = torch.load(checkpoint, map_location='cpu')
+            sd = sd.get('model', sd)
+            own = self.state_dict()
+            sd = {k: v for k, v in sd.items() if k in own and v.shape == own[k].shape}
+            missing = [k for k in own if k not in sd and not k.startswith('frontend.')]
+            self.load_state_dict(sd, strict=False)
+            if missing:
+                print(f'PannsBackbone: {len(missing)} tensors not in checkpoint, e.g. {missing[:3]}')
+        self._apply_freeze(self)
+
+    def forward_stages(self, wav):
+        x = self.frontend(wav)  # (B, 1, T, 64)
+        x = self.bn0(x.transpose(1, 3)).transpose(1, 3)
+        out = []
+        for i in range(self.n_blocks):
+            last = i == self.n_blocks - 1
+            x = getattr(self, f'conv_block{i + 1}')(x, (1, 1) if (last and self.n_blocks == 6) else (2, 2))
+            x = F.dropout(x, self.dropout, self.training)
+            if i >= self.n_blocks - 4:
+                out.append((x.mean(-1) + x.amax(-1)).transpose(1, 2))
+        return out
+
+
 class ASTBackbone(Backbone):
     """Audio Spectrogram Transformer (Hugging Face ``transformers``), AudioSet-pretrained.
+
+    Caution: in the U-FFIA benchmark, a fine-tuned AST reached only 0.736 on AV-FFIA (vs 0.859
+    for PANNs CNN10), so AST is not recommended as the main audio teacher on this dataset.
 
     Position embeddings are interpolated to the AV-FFIA clip length (2 s gives 200 fbank
     frames) rather than padding every clip to 10 s, which cuts the cost about 5x.
@@ -365,6 +433,7 @@ class VideoMAEBackbone(Backbone):
 BACKBONES = {
     'hyper_audio': HyperAudioNet,
     'timm_audio': TimmAudioBackbone,
+    'panns': PannsBackbone,
     'ast': ASTBackbone,
     'hyper_video': HyperVideoNet,
     'timm_frames': TimmFrameBackbone,

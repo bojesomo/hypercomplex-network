@@ -78,6 +78,7 @@
   <span><b>Code</b> bojesomo/hypercomplex-network, branch <span class="mono">claude/av-ffia-hypercomplex-classification-x87kyc</span></span>
   <span><b>Package</b> <span class="mono">avffia/</span> on <span class="mono">fast_hypercomplex</span></span>
   <span><b>Status</b> implemented and unit-tested; not yet trained on AV-FFIA</span>
+  <span><b>Reference</b> Cui et al., <i>Multimodal Fish Feeding Intensity Assessment in Aquaculture</i>, arXiv:2309.05058v3 (U-FFIA)</span>
 </div>
 
 <div class="abstract">
@@ -85,17 +86,19 @@
 Hypercomplex (PHM / Hamilton-product) layers are used wherever parameters live: point-wise convolutions, attention projections, MLPs, stage projectors and the classifier.
 Audio and video are fused by a new <b>Hypercomplex Component Fusion (HCF)</b> block. It treats the shared bottleneck state, the audio view, the video view and their interaction as the components of one quaternion (or octonion) and mixes them with a single Hamilton product.
 HCF can be attached at any depth of the two backbones. A configurable <b>deep-to-early</b> schedule, with zero-initialised cross-modal feedback, sweeps from late fusion to progressive early fusion.
-Large pretrained audio and video models (AST, VideoMAE, timm and torchvision networks) serve either as a <b>teacher</b> for multi-level distillation or as frozen <b>feature extractors</b> under a hypercomplex side network.
-The default quaternion student has <b>2.14&nbsp;M parameters</b> (3.7× fewer than the identical real-valued network, 7.88&nbsp;M) at <b>2.37&nbsp;GFLOPs</b> per 2&nbsp;s clip.</p>
+Large pretrained audio and video models (PANNs CNN10/14, S3D and other timm and torchvision networks) serve either as a <b>teacher</b> for multi-level distillation or as frozen <b>feature extractors</b> under a hypercomplex side network.
+The default quaternion student has <b>2.14&nbsp;M parameters</b> (3.7× fewer than the identical real-valued network, 7.88&nbsp;M) and costs <b>1.18&nbsp;GMACs</b> per 2&nbsp;s clip (2.36&nbsp;GFLOPs).
+That is <b>10× fewer parameters and 13× less compute than U-FFIA</b> (21.6&nbsp;M, 15.5&nbsp;GMACs) and 16× / 52× less than the current best AV model on AV-FFIA, cross-attention fusion at 0.917 accuracy (35.1&nbsp;M, 60.9&nbsp;GMACs).
+The accuracy target is therefore <b>&gt;&nbsp;0.917</b>, at an order of magnitude lower cost.</p>
 </div>
 
 <div class="callout warn"><b class="t">Read this first: what is and is not established</b>
-All parameter, FLOP, shape and latency figures in this report were measured from the implemented code.
-<b>No accuracy on AV-FFIA has been measured yet</b>: there was no GPU or dataset in the build environment. The published U-FFIA numbers could not be retrieved either, because the paper host was unreachable.
+Our own parameter, FLOP, shape and latency figures were measured from the implemented code. Published baselines are quoted from the U-FFIA paper (Tables I–V).
+<b>No accuracy of HyperAVNet on AV-FFIA has been measured yet</b>: there was no GPU or dataset in the build environment.
 Claims of beating the state of the art must therefore wait for the experiments in §8. Where a design choice is a hypothesis to be tested, this report says so.</div>
 
 <div class="toc">
-  <div><span>1</span>Task, data and evaluation protocol</div>
+  <div><span>1</span>Task, data, protocol and published SOTA</div>
   <div><span>2</span>Architecture overview</div>
   <div><span>3</span>Hypercomplex layers: the parameter-sharing mechanism</div>
   <div><span>4</span>Hypercomplex student backbones</div>
@@ -110,19 +113,52 @@ Claims of beating the state of the art must therefore wait for the experiments i
 </div>
 
 <!-- ====================================================================== 1 -->
-<h2>1&nbsp;&nbsp;Task, data and evaluation protocol</h2>
-<p>AV-FFIA (Cui et al., U-FFIA) has about 27,000 paired audio-video clips of aquaculture feeding, each labelled with one of four feeding intensities.
-To keep results directly comparable with the U-FFIA baselines, the data pipeline reproduces the reference code's conventions exactly:</p>
+<h2>1&nbsp;&nbsp;Task, data, protocol and published SOTA</h2>
+<p>AV-FFIA (Cui et al., U-FFIA) has 27,000 synchronised two-second audio-video clips of <i>Oplegnathus punctatus</i> feeding in a recirculating tank (3&nbsp;m diameter, 0.75&nbsp;m deep), 6,750 per class.
+Audio was recorded underwater by a hydrophone at 256&nbsp;kHz; video by an overhead camera at 25&nbsp;fps (50 frames per clip). A feeding technician labelled each one-minute recording as <i>None</i>, <i>Weak</i>, <i>Medium</i> or <i>Strong</i>, and recordings were then cut into 2&nbsp;s segments.
+The data pipeline reproduces the U-FFIA conventions exactly, so results are directly comparable:</p>
 <table>
   <thead><tr><th style="width:26%">Item</th><th>Setting used here (source)</th></tr></thead>
   <tbody>
   <tr><td>Classes and label ids</td><td><span class="mono">none=0, strong=1, medium=2, weak=3</span> (U-FFIA dataset code; note the order is not ordinal)</td></tr>
-  <tr><td>Split</td><td>Per class, shuffle with <span class="mono">np.random.RandomState(25)</span>; first 700 to test, next 700 to val, the rest to train (2,800 test and 2,800 val clips). Reproduced by <span class="mono">build_manifest</span>.</td></tr>
-  <tr><td>Audio</td><td>2&nbsp;s, resampled to 64&nbsp;kHz (U-FFIA). Log-mel with 64 bins, window 2048, hop 512 (U-FFIA: hop 1024), SpecAugment.</td></tr>
-  <tr><td>Video</td><td>16 uniformly sampled frames, short side 128 and crop 112 (student); 256 / 224 for the teacher. Random crop, flip and photometric jitter in training.</td></tr>
-  <tr><td>Selection and metrics</td><td>Best val accuracy selects the checkpoint (EMA weights); test is reported once. Accuracy (the U-FFIA headline), macro-F1, per-class F1, confusion matrix, audio-only and video-only accuracy from the auxiliary heads, parameters and FLOPs.</td></tr>
+  <tr><td>Split</td><td>Per class, shuffle with <span class="mono">np.random.RandomState(25)</span>; first 700 to test, next 700 to val, the rest to train (U-FFIA code; reproduced by <span class="mono">build_manifest</span>). This gives 21,400 / 2,800 / 2,800. The paper's text says 21,000 train, which does not add up to 27,000; val and test agree.</td></tr>
+  <tr><td>Audio</td><td>2&nbsp;s at 64&nbsp;kHz (downsampled from 256&nbsp;kHz). Log-mel exactly as in U-FFIA §VI-A: Hann window 2048, hop 1024, <b>128 mel bins</b> (128&nbsp;×&nbsp;128 per clip), SpecAugment. Optional <b>SimPF</b> spectral pooling (<span class="mono">simpf: 0.5</span>, 64&nbsp;×&nbsp;128), as U-FFIA uses.</td></tr>
+  <tr><td>Video</td><td>16 uniformly sampled frames, short side 128 and crop 112 (student); 256 / 224 for the teacher. U-FFIA's S3D used 20 frames at 224², and the U-FFIA model 4 random frames. Random crop, flip and photometric jitter in training.</td></tr>
+  <tr><td>Selection and metrics</td><td>Best val accuracy selects the checkpoint (EMA weights); test is reported once. <b>Accuracy</b> (U-FFIA's only metric), plus macro-F1, per-class F1, confusion matrix, audio-only and video-only accuracy, parameters, FLOPs and MACs.</td></tr>
+  <tr><td>Robustness (U-FFIA §V-D, Table III)</td><td>Audio noise at SNR −10, −5, 0, 10 and 20&nbsp;dB (U-FFIA used recorded bubble and pump noise; <span class="mono">robustness.noise_dir</span>). Video darkness and Gaussian noise (variance up to 0.2). Missing audio and missing video. Runs automatically after training.</td></tr>
   </tbody>
 </table>
+
+<h3>1.1&nbsp;&nbsp;Published results on AV-FFIA (U-FFIA paper)</h3>
+<p class="tcap"><b>Table A.</b> Best published models per modality. "GMACs" is the unit U-FFIA reports as FLOPs: we verified that torchvision S3D at 20×224² gives 22.4&nbsp;GMACs with our counter, against 22.8&nbsp;G in U-FFIA Table II.</p>
+<table>
+  <thead><tr><th>Model (U-FFIA table)</th><th>Modality</th><th class="num">Acc.</th><th class="num">Params (M)</th><th class="num">GMACs</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Pre-CNN10 (I)</td><td>A</td><td class="num">0.859</td><td class="num">5.0</td><td class="num">3.347</td><td>best audio; Pre-MobileNetV2 0.857 at 1.9&nbsp;M / 0.134&nbsp;G</td></tr>
+    <tr><td>Pre-AST (I)</td><td>A</td><td class="num">0.736</td><td class="num">85.3</td><td class="num">12.440</td><td>transformer audio model under-performs</td></tr>
+    <tr><td>Pretrained-S3D (II)</td><td>V</td><td class="num">0.898</td><td class="num">7.9</td><td class="num">22.826</td><td>best video; 20 frames</td></tr>
+    <tr><td>Pre-ViViT (II)</td><td>V</td><td class="num">0.743</td><td class="num">78.2</td><td class="num">77.344</td><td>Pre-3D-ViT 0.882 at 27.8&nbsp;M</td></tr>
+    <tr class="hl"><td>Cross-attention (III, IV)</td><td>AV</td><td class="num">0.917</td><td class="num">35.082</td><td class="num">60.933</td><td><b>current SOTA on AV-FFIA</b></td></tr>
+    <tr><td>Self-attention (III, IV)</td><td>AV</td><td class="num">0.892</td><td class="num">47.695</td><td class="num">68.404</td><td>A only 0.821, V only 0.883</td></tr>
+    <tr><td>MBT (III, IV)</td><td>AV</td><td class="num">0.724</td><td class="num">47.689</td><td class="num">68.690</td><td>attention bottleneck fails here</td></tr>
+    <tr><td>U-FFIA + KD (III, IV)</td><td>AV</td><td class="num">0.907</td><td class="num">21.626</td><td class="num">15.488</td><td>unified model; A only 0.824, V only 0.857</td></tr>
+  </tbody>
+</table>
+<p class="tcap"><b>Table B.</b> Published AV accuracy under audio noise (U-FFIA Table III: bubble and pump noise at the given SNR).</p>
+<table>
+  <thead><tr><th>Model</th><th class="num">Clean</th><th class="num">−10&nbsp;dB</th><th class="num">−5&nbsp;dB</th><th class="num">0&nbsp;dB</th><th class="num">10&nbsp;dB</th><th class="num">20&nbsp;dB</th></tr></thead>
+  <tbody>
+    <tr><td>Self-attention</td><td class="num">0.892</td><td class="num">0.713</td><td class="num">0.751</td><td class="num">0.774</td><td class="num">0.826</td><td class="num">0.863</td></tr>
+    <tr><td>Cross-attention</td><td class="num">0.917</td><td class="num">0.727</td><td class="num">0.768</td><td class="num">0.805</td><td class="num">0.834</td><td class="num">0.867</td></tr>
+    <tr><td>MBT</td><td class="num">0.724</td><td class="num">0.617</td><td class="num">0.631</td><td class="num">0.652</td><td class="num">0.681</td><td class="num">0.713</td></tr>
+    <tr><td>U-FFIA + KD</td><td class="num">0.907</td><td class="num">0.726</td><td class="num">0.779</td><td class="num">0.806</td><td class="num">0.835</td><td class="num">0.876</td></tr>
+  </tbody>
+</table>
+<div class="callout note"><b class="t">What the published results imply for this design</b>
+(1) Pretrained CNNs beat transformers on AV-FFIA (CNN10 0.859 vs AST 0.736; S3D 0.898 vs ViViT 0.743), so the recommended teacher is now <b>PANNs CNN10 + S3D</b> (§7). AST and VideoMAE are kept only as an ablation.
+(2) Cross-attention (0.917) beat self-attention (0.892) and especially MBT (0.724). U-FFIA attributes MBT's failure to bottlenecks that "attend to each modality sequentially". HCF instead reads each modality with its own cross-attention, in parallel, and then mixes them in one Hamilton product (§5). This addresses that critique directly.
+(3) Robustness to noise is part of the evaluation standard on this dataset, so it is now built into the pipeline.
+(4) The efficient-model bar is U-FFIA's 21.6&nbsp;M / 15.5&nbsp;GMACs; the student is designed an order of magnitude below it.</div>
 
 <!-- ====================================================================== 2 -->
 <h2>2&nbsp;&nbsp;Architecture overview</h2>
@@ -150,7 +186,7 @@ The classifier reads the pooled bottleneck together with the pooled last-stage a
   <text x="64" y="97" font-size="10.5" text-anchor="middle" fill="#334155">(B, 128000)</text>
   <rect x="140" y="40" width="108" height="70" rx="8" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/>
   <text x="194" y="64" font-size="11.5" font-weight="600" text-anchor="middle">Log-mel + stem</text>
-  <text x="194" y="80" font-size="10" text-anchor="middle" fill="#334155">SpecAug, BN</text>
+  <text x="194" y="80" font-size="10" text-anchor="middle" fill="#334155">128 mel, hop 1024</text>
   <text x="194" y="95" font-size="10" text-anchor="middle" fill="#334155">Conv 3×3/2 → 32</text>
   <line x1="120" y1="75" x2="138" y2="75" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
 
@@ -159,19 +195,19 @@ The classifier reads the pooled bottleneck together with the pooled last-stage a
     <rect x="270" y="40" width="130" height="70" rx="8" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/>
     <text x="335" y="60" font-size="12" font-weight="700" text-anchor="middle" fill="#0f766e">A0 · 48 ch</text>
     <text x="335" y="76" text-anchor="middle" fill="#334155">2 × Hyper-IR, /2</text>
-    <text x="335" y="92" text-anchor="middle" fill="#334155">tokens 63 × 48</text>
+    <text x="335" y="92" text-anchor="middle" fill="#334155">tokens 32 × 48</text>
     <rect x="430" y="40" width="130" height="70" rx="8" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/>
     <text x="495" y="60" font-size="12" font-weight="700" text-anchor="middle" fill="#0f766e">A1 · 96 ch</text>
     <text x="495" y="76" text-anchor="middle" fill="#334155">2 × Hyper-IR, /2</text>
-    <text x="495" y="92" text-anchor="middle" fill="#334155">tokens 32 × 96</text>
+    <text x="495" y="92" text-anchor="middle" fill="#334155">tokens 16 × 96</text>
     <rect x="590" y="40" width="130" height="70" rx="8" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/>
     <text x="655" y="60" font-size="12" font-weight="700" text-anchor="middle" fill="#0f766e">A2 · 160 ch</text>
     <text x="655" y="76" text-anchor="middle" fill="#334155">3 × Hyper-IR, /2</text>
-    <text x="655" y="92" text-anchor="middle" fill="#334155">tokens 16 × 160</text>
+    <text x="655" y="92" text-anchor="middle" fill="#334155">tokens 8 × 160</text>
     <rect x="750" y="40" width="130" height="70" rx="8" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/>
     <text x="815" y="60" font-size="12" font-weight="700" text-anchor="middle" fill="#0f766e">A3 · 256 ch</text>
     <text x="815" y="76" text-anchor="middle" fill="#334155">2 × Hyper-IR</text>
-    <text x="815" y="92" text-anchor="middle" fill="#334155">tokens 16 × 256</text>
+    <text x="815" y="92" text-anchor="middle" fill="#334155">tokens 8 × 256</text>
   </g>
   <line x1="248" y1="75" x2="268" y2="75" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
   <line x1="400" y1="75" x2="428" y2="75" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
@@ -413,17 +449,17 @@ Both backbones are <i>stage-wise</i>: the AV model runs them one stage at a time
 <figcaption><b>Figure 3. Hypercomplex inverted-residual block (Hyper-IR).</b> Expansion ratio 4. The same block is used in 2D (audio) and 3D (video); only the depth-wise kernel and stride change.</figcaption>
 </figure>
 
-<p class="tcap"><b>Table 1.</b> Student backbone stages (measured, default config). Audio input: log-mel (1,&nbsp;251,&nbsp;64), stem output (32,&nbsp;126,&nbsp;32). Video input (3,&nbsp;16,&nbsp;112,&nbsp;112), stem output (32,&nbsp;16,&nbsp;56,&nbsp;56).</p>
+<p class="tcap"><b>Table 1.</b> Student backbone stages (measured, default config). Audio input: log-mel (1,&nbsp;126,&nbsp;128), stem output (32,&nbsp;63,&nbsp;64). Video input (3,&nbsp;16,&nbsp;112,&nbsp;112), stem output (32,&nbsp;16,&nbsp;56,&nbsp;56).</p>
 <table>
   <thead><tr><th>Stage</th><th class="num">Channels</th><th>Audio blocks / stride</th><th>Audio map (C,T,F)</th><th class="num">Audio tokens</th><th>Video blocks / stride (T,H,W)</th><th>Video map (C,T,H,W)</th><th class="num">Video tokens</th></tr></thead>
   <tbody>
-    <tr><td>0</td><td class="num">48</td><td>2 / 2</td><td>48×63×16</td><td class="num">63</td><td>1 / (1,2,2)</td><td>48×16×28×28</td><td class="num">64</td></tr>
-    <tr><td>1</td><td class="num">96</td><td>2 / 2</td><td>96×32×8</td><td class="num">32</td><td>2 / (2,2,2)</td><td>96×8×14×14</td><td class="num">32</td></tr>
-    <tr><td>2</td><td class="num">160</td><td>3 / 2</td><td>160×16×4</td><td class="num">16</td><td>3 / (2,2,2)</td><td>160×4×7×7</td><td class="num">16</td></tr>
-    <tr><td>3</td><td class="num">256</td><td>2 / 1</td><td>256×16×4</td><td class="num">16</td><td>2 / (1,2,2)</td><td>256×4×4×4</td><td class="num">16</td></tr>
+    <tr><td>0</td><td class="num">48</td><td>2 / 2</td><td>48×32×32</td><td class="num">32</td><td>1 / (1,2,2)</td><td>48×16×28×28</td><td class="num">64</td></tr>
+    <tr><td>1</td><td class="num">96</td><td>2 / 2</td><td>96×16×16</td><td class="num">16</td><td>2 / (2,2,2)</td><td>96×8×14×14</td><td class="num">32</td></tr>
+    <tr><td>2</td><td class="num">160</td><td>3 / 2</td><td>160×8×8</td><td class="num">8</td><td>3 / (2,2,2)</td><td>160×4×7×7</td><td class="num">16</td></tr>
+    <tr><td>3</td><td class="num">256</td><td>2 / 1</td><td>256×8×8</td><td class="num">8</td><td>2 / (1,2,2)</td><td>256×4×4×4</td><td class="num">16</td></tr>
   </tbody>
 </table>
-<p><b>Tokenisation.</b> Audio stage maps are pooled over frequency, as mean + max (the max keeps short splash and feeding transients), which gives one token per time frame.
+<p><b>Tokenisation.</b> Audio stage maps are pooled over frequency, as mean + max (the max keeps short splash and feeding transients), which gives one token per time frame. U-FFIA's audio encoder pools the same way (average over frequency, then max + mean over time).
 Video maps are adaptively pooled to a 2&nbsp;×&nbsp;2 spatial grid per time step, which keeps coarse location (where the feeding activity is) while keeping fusion cheap.</p>
 
 <!-- ====================================================================== 5 -->
@@ -496,11 +532,11 @@ The Hamilton product makes every output a signed mix of every component, so cros
 
 <h3>5.1&nbsp;&nbsp;Baselines provided for the fusion-operator ablation</h3>
 <ul>
-  <li><b>MBT</b> (attention bottleneck; Nagrani et al. 2021, and the U-FFIA fusion): [<i>A</i>; <i>Z</i>] and [<i>V</i>; <i>Z</i>] each go through a hypercomplex transformer block, and the two bottleneck updates are averaged. It has about the same parameters as HCF (2.138&nbsp;M vs 2.137&nbsp;M in total), so the comparison is <i>iso-parameter</i>.</li>
+  <li><b>MBT</b> (attention bottleneck; Nagrani et al. 2021; 0.724 on AV-FFIA in U-FFIA Table III): [<i>A</i>; <i>Z</i>] and [<i>V</i>; <i>Z</i>] each go through a hypercomplex transformer block, and the two bottleneck updates are averaged. It has about the same parameters as HCF (2.138&nbsp;M vs 2.137&nbsp;M in total), so the comparison is <i>iso-parameter</i>.</li>
   <li><b>Concat</b>: the pooled [<i>Z</i>, mean&nbsp;<i>A</i>, mean&nbsp;<i>V</i>] through a gated hypercomplex linear layer (1.851&nbsp;M total).</li>
 </ul>
 <div class="callout note"><b class="t">Hypotheses to test (H1–H3)</b>
-<b>H1</b> HCF ≥ MBT at equal parameters, because the multiplicative <i>z</i><sub>a</sub>⊙<i>z</i><sub>v</sub> component explicitly models agreement between the splashing sound and the visible surface agitation that marks strong feeding.
+<b>H1</b> HCF &gt; MBT at equal parameters, and HCF ≥ the published cross-attention result (0.917). Each modality is read in parallel rather than sequentially (U-FFIA's explanation of MBT's failure), and the multiplicative <i>z</i><sub>a</sub>⊙<i>z</i><sub>v</sub> component explicitly models agreement between the feeding sounds (chewing, tail-slapping) and the visible aggregation and surface agitation that U-FFIA §V-C describes.
 <b>H2</b> Octonion HCF ≥ quaternion HCF, at the same parameters, from the extra interaction terms.
 <b>H3</b> HCF is more robust than concatenation under modality dropout and corruption (test with one modality blanked at evaluation time).</div>
 
@@ -530,22 +566,22 @@ The network then learns how much audio context should modulate the video feature
     <g transform="translate(0,34)">
       <text x="10" y="20" class="mono" font-family="JetBrains Mono" font-size="12">[3]</text>
       <g transform="translate(200,4)"><rect x="0" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="80" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="160" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="240" width="70" height="22" rx="4" fill="#4338ca"/><text x="275" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF</text></g>
-      <text x="600" y="20" text-anchor="end">1.780</text><text x="730" y="20" text-anchor="end">2.333</text><text x="800" y="20" fill="#334155">late fusion (reference)</text>
+      <text x="600" y="20" text-anchor="end">1.780</text><text x="730" y="20" text-anchor="end">2.331</text><text x="800" y="20" fill="#334155">late fusion (reference)</text>
     </g>
     <g transform="translate(0,66)">
       <text x="10" y="20" font-family="JetBrains Mono" font-size="12">[2,3]</text>
       <g transform="translate(200,4)"><rect x="0" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="80" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="160" width="70" height="22" rx="4" fill="#4338ca"/><text x="195" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="240" width="70" height="22" rx="4" fill="#4338ca"/><text x="275" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF</text></g>
-      <text x="600" y="20" text-anchor="end">1.965</text><text x="730" y="20" text-anchor="end">2.347</text><text x="800" y="20" fill="#334155">mid + late</text>
+      <text x="600" y="20" text-anchor="end">1.965</text><text x="730" y="20" text-anchor="end">2.344</text><text x="800" y="20" fill="#334155">mid + late</text>
     </g>
     <g transform="translate(0,98)">
       <text x="10" y="20" font-family="JetBrains Mono" font-size="12">[1,2,3]</text>
       <g transform="translate(200,4)"><rect x="0" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="80" width="70" height="22" rx="4" fill="#4338ca"/><text x="115" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="160" width="70" height="22" rx="4" fill="#4338ca"/><text x="195" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="240" width="70" height="22" rx="4" fill="#4338ca"/><text x="275" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF</text></g>
-      <text x="600" y="20" text-anchor="end" font-weight="700">2.137</text><text x="730" y="20" text-anchor="end" font-weight="700">2.366</text><text x="800" y="20" fill="#4338ca" font-weight="700">default (progressive)</text>
+      <text x="600" y="20" text-anchor="end" font-weight="700">2.137</text><text x="730" y="20" text-anchor="end" font-weight="700">2.360</text><text x="800" y="20" fill="#4338ca" font-weight="700">default (progressive)</text>
     </g>
     <g transform="translate(0,130)">
       <text x="10" y="20" font-family="JetBrains Mono" font-size="12">[0,1,2,3]</text>
       <g transform="translate(200,4)"><rect x="0" width="70" height="22" rx="4" fill="#4338ca"/><text x="35" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="80" width="70" height="22" rx="4" fill="#4338ca"/><text x="115" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="160" width="70" height="22" rx="4" fill="#4338ca"/><text x="195" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="240" width="70" height="22" rx="4" fill="#4338ca"/><text x="275" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF</text></g>
-      <text x="600" y="20" text-anchor="end">2.300</text><text x="730" y="20" text-anchor="end">2.395</text><text x="800" y="20" fill="#334155">earliest (full progressive)</text>
+      <text x="600" y="20" text-anchor="end">2.300</text><text x="730" y="20" text-anchor="end">2.384</text><text x="800" y="20" fill="#334155">earliest (full progressive)</text>
     </g>
     <line x1="10" y1="170" x2="990" y2="170" stroke="#cbd5e1"/>
     <g transform="translate(0,176)">
@@ -560,13 +596,16 @@ The network then learns how much audio context should modulate the video feature
     </g>
   </g>
 </svg>
-<figcaption><b>Figure 5. Deep-to-early fusion schedule</b> (measured params and GFLOPs, quaternion student). ↺ = the stage sends a feedback gate into both streams. Each added HCF stage costs about 0.17&nbsp;M parameters and under 0.03&nbsp;GFLOPs, so the depth ablation is almost free in compute.</figcaption>
+<figcaption><b>Figure 5. Deep-to-early fusion schedule</b> (measured params and GFLOPs, quaternion student). ↺ = the stage sends a feedback gate into both streams. Each added HCF stage costs about 0.17&nbsp;M parameters and under 0.03&nbsp;GFLOPs, so the depth ablation is almost free in compute. (Halve the GFLOPs for GMACs, U-FFIA's unit.)</figcaption>
 </figure>
 
 <div class="callout note"><b class="t">Hypotheses to test (H4–H5)</b>
 <b>H4</b> Accuracy rises from <span class="mono">[3]</span> to <span class="mono">[1,2,3]</span>. Mid-level cues (surface texture, the onset of a splash) are complementary across modalities before they are abstracted away.
 Fusion at stage&nbsp;0 may be too low-level to help; report it either way, because an inverted-U curve is itself a finding.
 <b>H5</b> Feedback (↺) beats the same stages without feedback, especially for the confusable <i>weak</i> and <i>medium</i> classes.</div>
+<p><b>Modality dropout versus U-FFIA.</b> HyperAVNet drops audio or video with probability <i>p</i> each (in U-FFIA's notation, <i>p</i><sub>av</sub>&nbsp;=&nbsp;1&nbsp;−&nbsp;2<i>p</i> and <i>p</i><sub>a</sub>&nbsp;=&nbsp;<i>p</i><sub>v</sub>&nbsp;=&nbsp;<i>p</i>). One per-sample mask applies at every fusion input and at the fused head, and the same switch simulates a missing modality at test time.
+U-FFIA Table V found a trade-off: no dropout (<i>p</i><sub>av</sub>&nbsp;=&nbsp;1) gives the best clean AV accuracy (0.917), while dropout is needed for single-modality use.
+HyperAVNet's <b>auxiliary unimodal heads</b> train each branch on its own regardless of dropout, so a small <i>p</i> (0.1) should be enough. Ablation D tests <i>p</i>&nbsp;∈&nbsp;{0, 0.1, 0.25}.</p>
 
 <!-- ====================================================================== 7 -->
 <h2>7&nbsp;&nbsp;Pretrained models: teacher, extractor, distillation</h2>
@@ -578,11 +617,12 @@ There are two modes. In <b>distillation</b>, a large pretrained AV teacher super
   <tbody>
     <tr><td class="mono">hyper_audio</td><td>Hyper-IR CNN on log-mel (0.75&nbsp;M at <i>n</i>=4)</td><td>4 stages, time tokens</td><td><span class="pill pa">student</span></td></tr>
     <tr><td class="mono">hyper_video</td><td>Hyper-IR 3D CNN (0.82&nbsp;M at <i>n</i>=4)</td><td>4 stages, T×2×2 tokens</td><td><span class="pill pv">student</span></td></tr>
-    <tr><td class="mono">ast</td><td>Audio Spectrogram Transformer, AudioSet. Position embeddings interpolated to 2&nbsp;s (19 time patches instead of 101), about 5× cheaper than padding to 10&nbsp;s</td><td>layers 3/6/9/12</td><td><span class="pill pf">teacher</span> extractor</td></tr>
-    <tr><td class="mono">videomae</td><td>VideoMAE-B, Kinetics; tokens pooled to 7×7 per tubelet step</td><td>layers 3/6/9/12</td><td><span class="pill pf">teacher</span> extractor</td></tr>
+    <tr><td class="mono">panns</td><td>PANNs CNN10 / CNN14, AudioSet (official checkpoint names). CNN10 is U-FFIA's audio teacher and the best audio model on AV-FFIA (0.859)</td><td>last 4 conv blocks</td><td><span class="pill pf">teacher</span> extractor</td></tr>
+    <tr><td class="mono">tv_video</td><td>torchvision Kinetics S3D (U-FFIA's video teacher, 0.898), R(2+1)D-18, R3D-18, MC3-18</td><td>4 named blocks</td><td><span class="pill pf">teacher</span> extractor</td></tr>
+    <tr><td class="mono">ast</td><td>Audio Spectrogram Transformer, AudioSet; position embeddings interpolated to 2&nbsp;s. <i>0.736 on AV-FFIA in U-FFIA; ablation only</i></td><td>layers 3/6/9/12</td><td>ablation</td></tr>
+    <tr><td class="mono">videomae</td><td>VideoMAE-B, Kinetics; tokens pooled to 7×7 per tubelet step. <i>ViViT reached 0.743 in U-FFIA; ablation only</i></td><td>layers 3/6/9/12</td><td>ablation</td></tr>
     <tr><td class="mono">timm_audio</td><td>Any timm CNN on 1-channel mel (EfficientNet, MobileNetV2/V4, ConvNeXt); per-clip standardisation when frozen</td><td>feature_info stages</td><td>extractor</td></tr>
     <tr><td class="mono">timm_frames</td><td>Any timm 2D net per frame, plus a <b>hypercomplex temporal adapter</b> (depth-wise temporal conv and a HyperConv 1×1×1, zero-initialised)</td><td>feature_info stages</td><td>extractor</td></tr>
-    <tr><td class="mono">tv_video</td><td>torchvision Kinetics R(2+1)D-18, R3D-18, MC3-18, S3D (the U-FFIA video backbone)</td><td>4 named blocks</td><td>extractor, baseline</td></tr>
   </tbody>
 </table>
 
@@ -590,10 +630,10 @@ There are two modes. In <b>distillation</b>, a large pretrained AV teacher super
 <svg viewBox="0 0 1000 285" xmlns="http://www.w3.org/2000/svg">
   <defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker></defs>
   <g font-size="11" text-anchor="middle">
-    <text x="210" y="18" font-size="12.5" font-weight="700">Stage 1: teacher (frozen except the last blocks)</text>
-    <rect x="20" y="32" width="170" height="54" rx="7" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.4"/><text x="105" y="54" font-weight="700" fill="#0f766e">AST (AudioSet)</text><text x="105" y="71" font-size="9.5" fill="#334155">blocks 10–11 + LN trainable</text>
-    <rect x="20" y="100" width="170" height="54" rx="7" fill="#fdf1e3" stroke="#b45309" stroke-width="1.4"/><text x="105" y="122" font-weight="700" fill="#b45309">VideoMAE-B (K400)</text><text x="105" y="139" font-size="9.5" fill="#334155">blocks 10–11 trainable</text>
-    <rect x="230" y="55" width="170" height="76" rx="7" fill="#ecebfb" stroke="#4338ca" stroke-width="1.5"/><text x="315" y="80" font-weight="700" fill="#4338ca">HCF side network</text><text x="315" y="97" font-size="9.5" fill="#334155">layers 3/6/9/12, D = 384</text><text x="315" y="112" font-size="9.5" fill="#334155">16 bottleneck tokens</text>
+    <text x="210" y="18" font-size="12.5" font-weight="700">Stage 1: teacher (15.9 M, 21.5 GMACs), fine-tuned</text>
+    <rect x="20" y="32" width="170" height="54" rx="7" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.4"/><text x="105" y="54" font-weight="700" fill="#0f766e">PANNs CNN10 (AudioSet)</text><text x="105" y="71" font-size="9.5" fill="#334155">U-FFIA best audio: 0.859</text>
+    <rect x="20" y="100" width="170" height="54" rx="7" fill="#fdf1e3" stroke="#b45309" stroke-width="1.4"/><text x="105" y="122" font-weight="700" fill="#b45309">S3D (Kinetics-400)</text><text x="105" y="139" font-size="9.5" fill="#334155">U-FFIA best video: 0.898</text>
+    <rect x="230" y="55" width="170" height="76" rx="7" fill="#ecebfb" stroke="#4338ca" stroke-width="1.5"/><text x="315" y="80" font-weight="700" fill="#4338ca">HCF side network</text><text x="315" y="97" font-size="9.5" fill="#334155">last 4 stages, D = 384</text><text x="315" y="112" font-size="9.5" fill="#334155">16 bottleneck tokens</text>
     <rect x="430" y="55" width="110" height="76" rx="7" fill="#eef1f5" stroke="#334155" stroke-width="1.3"/><text x="485" y="80" font-weight="700">Teacher</text><text x="485" y="96" font-size="9.5" fill="#334155">logits, aux logits</text><text x="485" y="110" font-size="9.5" fill="#334155">feat, feat_a, feat_v</text>
     <!-- student -->
     <text x="210" y="190" font-size="12.5" font-weight="700">Stage 2: HyperAVNet student (2.14 M)</text>
@@ -623,7 +663,7 @@ There are two modes. In <b>distillation</b>, a large pretrained AV teacher super
     <path d="M540,234 L598,200" marker-end="url(#ar4)" stroke="#9d174d"/>
   </g>
 </svg>
-<figcaption><b>Figure 6. Two-stage training with multi-level distillation.</b> The teacher is trained first (<span class="mono">configs/teacher_ast_videomae.yaml</span>), then frozen. The student (<span class="mono">configs/student_hyper_kd.yaml</span>) learns from labels, teacher logits (fused and per modality), pooled embeddings and batch relations. Loss weights are the defaults in the config.</figcaption>
+<figcaption><b>Figure 6. Two-stage training with multi-level distillation.</b> The teacher pairs the two strongest pretrained models in the U-FFIA benchmark. It is trained first (<span class="mono">configs/teacher_panns_s3d.yaml</span>), then frozen. The student (<span class="mono">configs/student_hyper_kd.yaml</span>) learns from labels, teacher logits (fused and per modality), pooled embeddings and batch relations. Loss weights are the defaults in the config. U-FFIA's own KD (eq.&nbsp;9: CE and KD weighted 0.5 / 0.5, temperature 2.5 on the teacher only) is available as <span class="mono">style: uffia</span> for ablation E.</figcaption>
 </figure>
 
 <h3>7.1&nbsp;&nbsp;Feature-extraction mode (cheapest training)</h3>
@@ -637,9 +677,9 @@ This mode suits large sweeps (e.g. the full fusion-depth × algebra grid) and is
 <table>
   <thead><tr><th>Setting</th><th>Student</th><th>Teacher</th><th>Notes</th></tr></thead>
   <tbody>
-    <tr><td>Optimiser</td><td colspan="2">AdamW (β = 0.9, 0.999), weight decay 0.05 (none on norms, biases or tokens)</td><td>U-FFIA used Adam at 1e-3</td></tr>
+    <tr><td>Optimiser</td><td colspan="2">AdamW (β = 0.9, 0.999), weight decay 0.05 (none on norms, biases or tokens)</td><td>U-FFIA: Adam; 1e-4 for its AV / unified models</td></tr>
     <tr><td>Learning rate / schedule</td><td>1e-3, cosine, 2 warm-up epochs</td><td>3e-4; pretrained weights ×0.1</td><td>per-group base learning rates</td></tr>
-    <tr><td>Epochs / batch</td><td>40 / 32</td><td>20 / 16</td><td>EMA 0.999, used for selection</td></tr>
+    <tr><td>Epochs / batch</td><td>40 / 32</td><td>30 / 16</td><td>EMA 0.999; U-FFIA AV: 200 epochs, batch 20</td></tr>
     <tr><td>Regularisation</td><td colspan="2">label smoothing 0.1, drop-path 0.1, modality dropout 0.1, SpecAugment, crop/flip/jitter, gain/shift</td><td>gradient clip 5.0</td></tr>
     <tr><td>Precision</td><td colspan="2">bf16 autocast (mel and fbank front-ends forced to fp32)</td><td></td></tr>
   </tbody>
@@ -652,13 +692,14 @@ This mode suits large sweeps (e.g. the full fusion-depth × algebra grid) and is
     <tr><td>A</td><td>Fusion depth (deep → early)</td><td><span class="mono">[3]</span>, <span class="mono">[2,3]</span>, <span class="mono">[1,2,3]</span>, <span class="mono">[0,1,2,3]</span>; single <span class="mono">[0]</span>, <span class="mono">[1]</span>, <span class="mono">[2]</span>; <span class="mono">[1,2,3]</span> without feedback</td><td>H4, H5</td></tr>
     <tr><td>B</td><td>Network algebra <i>n</i></td><td>1 (real, 7.88&nbsp;M), 2 (3.94&nbsp;M), 4 (2.14&nbsp;M), 8 (1.24&nbsp;M), 16 (0.78&nbsp;M)</td><td>accuracy holds down to <i>n</i> = 4–8</td></tr>
     <tr><td>C</td><td>Fusion operator</td><td>HCF-complex, HCF-quaternion, HCF-octonion, MBT, concat</td><td>H1, H2</td></tr>
-    <tr><td>D</td><td>Regularisers</td><td>no modality dropout; no auxiliary heads</td><td>H3, modality balance</td></tr>
-    <tr><td>E</td><td>Distillation</td><td>best A–D settings ± KD; KD loss terms one at a time (logits / feat / rel / unimodal)</td><td>KD closes the gap to the teacher</td></tr>
-    <tr><td>F</td><td>Robustness (evaluation only)</td><td>audio blanked; video blanked; additive noise / blur</td><td>H3</td></tr>
+    <tr><td>D</td><td>Regularisers</td><td>modality dropout <i>p</i> ∈ {0, 0.1, 0.25} (cf. U-FFIA Table V); no auxiliary heads</td><td>H3, modality balance</td></tr>
+    <tr><td>E</td><td>Distillation</td><td>best A–D settings ± KD; KD terms one at a time (logits / feat / rel / unimodal); U-FFIA eq. (9) KD</td><td>KD closes the gap to the teacher</td></tr>
+    <tr><td>F</td><td>Robustness (evaluation only, automatic)</td><td>audio noise at SNR −10…20&nbsp;dB; video darkness ×0.5 / ×0.25 and Gaussian noise (variance 0.05–0.2); missing audio / video</td><td>H3; compare with Table B</td></tr>
+    <tr><td>G</td><td>Audio front-end</td><td>SimPF <i>k</i> = 0.5 (U-FFIA) vs none</td><td>SimPF cuts audio MACs with little loss</td></tr>
   </tbody>
 </table>
 
-<p class="tcap"><b>Table 5.</b> Parameters by algebra <i>n</i> (measured, default student with <span class="mono">fusion_stages=[1,2,3]</span>). GFLOPs are 2.37 for every <i>n</i>.</p>
+<p class="tcap"><b>Table 5.</b> Parameters by algebra <i>n</i> (measured, default student with <span class="mono">fusion_stages=[1,2,3]</span>). Compute is 1.18&nbsp;GMACs (2.36&nbsp;GFLOPs) for every <i>n</i>.</p>
 <table>
   <thead><tr><th><i>n</i></th><th>Algebra</th><th class="num">Total (M)</th><th class="num">Audio backbone (M)</th><th class="num">Video backbone (M)</th><th class="num">Reduction vs real</th></tr></thead>
   <tbody>
@@ -681,9 +722,11 @@ This mode suits large sweeps (e.g. the full fusion-depth × algebra grid) and is
     <tr><td>Stored parameters (<i>n</i> = 4)</td><td class="num">2.14 M</td></tr>
     <tr><td>  audio / video / fusion + heads</td><td class="num">0.75 / 0.82 / 0.57 M</td></tr>
     <tr><td>Same network, real (<i>n</i> = 1)</td><td class="num">7.88 M</td></tr>
-    <tr><td>FLOPs per clip</td><td class="num">2.37 G</td></tr>
-    <tr><td>  audio / video backbone</td><td class="num">0.38 / 1.94 G</td></tr>
-    <tr><td>CPU latency, training form</td><td class="num">65 ms</td></tr>
+    <tr><td>MACs per clip (U-FFIA's "FLOPs")</td><td class="num">1.18 G</td></tr>
+    <tr><td>FLOPs per clip (2 × MACs)</td><td class="num">2.36 G</td></tr>
+    <tr><td>  audio / video backbone (FLOPs)</td><td class="num">0.38 / 1.94 G</td></tr>
+    <tr><td>  with SimPF 0.5 / 8 frames / 20 frames</td><td class="num">2.18 / 1.39 / 2.85 G</td></tr>
+    <tr><td>CPU latency, training form</td><td class="num">67 ms</td></tr>
     <tr><td>CPU latency, reparameterised</td><td class="num">46 ms</td></tr>
   </tbody>
 </table>
@@ -692,10 +735,24 @@ This mode suits large sweeps (e.g. the full fusion-depth × algebra grid) and is
 <p><b>Reparameterisation.</b> <span class="mono">reparameterize_hypercomplex(model)</span> folds every assembled Hamilton kernel into a plain <span class="mono">nn.Linear</span> or <span class="mono">nn.Conv</span>. Its outputs are identical (unit-tested). This removes the per-forward kernel assembly, which makes inference about 30% faster on CPU.
 Training saves this form as <span class="mono">deploy.pt</span>.</p>
 <p><b>What to claim.</b> Hypercomplex layers reduce <i>stored and optimised</i> parameters (model size, memory, communication), not arithmetic: the assembled kernel is dense, so FLOPs equal the real network's.
-Compute efficiency comes from the compact backbone design instead: about 2.4&nbsp;GFLOPs per clip, with the video branch at 82% of it.
+Compute efficiency comes from the compact backbone design instead: 1.18&nbsp;GMACs per clip, with the video branch at 82% of it.
 To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mono">num_frames</span> or the input size. Do not attribute FLOP savings to the algebra.</p>
 </div>
 </div>
+
+<p class="tcap"><b>Table 6b.</b> Efficiency against the published AV models (U-FFIA Table IV; GMACs, single clip).</p>
+<table>
+  <thead><tr><th>Model</th><th class="num">AV acc.</th><th class="num">Params (M)</th><th class="num">GMACs</th><th class="num">Params vs ours</th><th class="num">MACs vs ours</th></tr></thead>
+  <tbody>
+    <tr><td>Self-attention</td><td class="num">0.892</td><td class="num">47.695</td><td class="num">68.404</td><td class="num">22.3×</td><td class="num">58.0×</td></tr>
+    <tr><td>Cross-attention (SOTA)</td><td class="num">0.917</td><td class="num">35.082</td><td class="num">60.933</td><td class="num">16.4×</td><td class="num">51.6×</td></tr>
+    <tr><td>MBT</td><td class="num">0.724</td><td class="num">47.689</td><td class="num">68.690</td><td class="num">22.3×</td><td class="num">58.2×</td></tr>
+    <tr><td>U-FFIA (+KD)</td><td class="num">0.907</td><td class="num">21.626</td><td class="num">15.488</td><td class="num">10.1×</td><td class="num">13.1×</td></tr>
+    <tr><td>Our teacher: PANNs CNN10 + S3D + HCF (16 frames, 224²)</td><td class="num">to measure</td><td class="num">15.874</td><td class="num">21.483</td><td class="num">7.4×</td><td class="num">18.2×</td></tr>
+    <tr class="hl"><td>HyperAVNet-Q student</td><td class="num">to measure</td><td class="num">2.137</td><td class="num">1.180</td><td class="num">1×</td><td class="num">1×</td></tr>
+    <tr><td>HyperAVNet-O student</td><td class="num">to measure</td><td class="num">1.235</td><td class="num">1.180</td><td class="num">0.58×</td><td class="num">1×</td></tr>
+  </tbody>
+</table>
 
 <!-- ====================================================================== 10 -->
 <h2>10&nbsp;&nbsp;Guide for writing the paper</h2>
@@ -710,47 +767,51 @@ To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mon
   <li>A <b>fully hypercomplex audio-visual architecture</b> for FFIA, with Hamilton-product weight sharing in the backbones, attention, fusion and heads, at 3.7×–10× fewer parameters than the real-valued equivalent.</li>
   <li><b>Hypercomplex Component Fusion</b>: modality views and their multiplicative interactions are encoded as the components of a quaternion or octonion and mixed by a single Hamilton product, with a constant parameter cost whatever the algebra.</li>
   <li>A <b>systematic deep-to-early fusion study</b> with zero-initialised cross-modal feedback, identifying where audio-visual fusion helps FFIA.</li>
-  <li><b>Multi-level distillation</b> from large pretrained audio (AST) and video (VideoMAE) models into a 2&nbsp;M-parameter hypercomplex student, and a frozen-feature side-network variant.</li>
-  <li><b>State-of-the-art accuracy on AV-FFIA</b> at a fraction of the parameters of prior models. <i>Only if Table 7 confirms it.</i></li>
+  <li><b>Multi-level distillation</b> from the strongest pretrained audio (PANNs CNN10) and video (S3D) models on AV-FFIA into a 2&nbsp;M-parameter hypercomplex student, and a frozen-feature side-network variant.</li>
+  <li><b>State-of-the-art accuracy on AV-FFIA</b> (&gt;&nbsp;0.917, the published cross-attention result) with 16× fewer parameters and 52× fewer MACs, and better robustness to noise than U-FFIA (Table B). <i>Only if Table 7 and the robustness runs confirm it.</i></li>
 </ol>
 <h3>10.3&nbsp;&nbsp;Suggested paper outline and where each item goes</h3>
 <table>
   <thead><tr><th style="width:26%">Section</th><th>Content</th><th style="width:28%">From this report</th></tr></thead>
   <tbody>
-    <tr><td>1 Introduction</td><td>FFIA in aquaculture: feed waste, welfare, cost. Audio and video are complementary (turbidity, lighting, occlusion vs noise). Efficiency for edge deployment.</td><td>contributions §10.2</td></tr>
-    <tr><td>2 Related work</td><td>FFIA (vision, audio, U-FFIA); AV fusion (early, late, MBT); hypercomplex / PHM networks; KD for AV models</td><td>Appendix B</td></tr>
+    <tr><td>1 Introduction</td><td>FFIA in aquaculture: feed waste, welfare, cost. Audio and video are complementary (turbidity, lighting, surface reflections vs bubble and pump noise). U-FFIA showed AV fusion helps but costs 15–69 GMACs; edge deployment needs far less.</td><td>contributions §10.2; Table A</td></tr>
+    <tr><td>2 Related work</td><td>FFIA: image (MSIF-MobileNetV3, EfficientNet-B2), video / optical flow (3D CNNs), audio (AFFIA3K), AV (U-FFIA); AV fusion (self-attention, cross-attention, MBT); hypercomplex / PHM networks; KD</td><td>Appendix B</td></tr>
     <tr><td>3 Preliminaries</td><td>Hypercomplex algebras and Hamilton-product layers</td><td>§3, Fig. 2, eq. (1)</td></tr>
     <tr><td>4 Method</td><td>4.1 overview; 4.2 hypercomplex backbones; 4.3 HCF; 4.4 deep-to-early fusion and feedback; 4.5 objectives and distillation</td><td>Figs. 1, 3, 4, 5, 6; eqs. (2)–(6); Table 1</td></tr>
     <tr><td>5 Experimental set-up</td><td>AV-FFIA, split, metrics, implementation details</td><td>§1, Tables 3 and 6</td></tr>
-    <tr><td>6 Results</td><td>main comparison (Table 7); efficiency (params, FLOPs, latency) plot</td><td>Tables 5, 6 and 7</td></tr>
-    <tr><td>7 Ablations</td><td>fusion depth, algebra, operator, KD, robustness</td><td>Table 4, H1–H5</td></tr>
+    <tr><td>6 Results</td><td>main comparison (Table 7); accuracy-vs-MACs plot against U-FFIA's models; robustness table in U-FFIA's Table III format</td><td>Tables A, B, 6b and 7</td></tr>
+    <tr><td>7 Ablations</td><td>fusion depth, algebra, operator, KD, modality dropout, SimPF</td><td>Table 4, H1–H5</td></tr>
     <tr><td>8 Analysis</td><td>confusion matrices (weak vs medium), per-class F1, attention maps over time, gate magnitudes per stage</td><td>confusion and per-class F1 are saved by <span class="mono">train.py</span>; attention and gate maps need forward hooks (not yet implemented)</td></tr>
-    <tr><td>9 Conclusion</td><td>limitations (FLOPs vs params, single dataset, species and site generalisation)</td><td>§9</td></tr>
+    <tr><td>9 Conclusion</td><td>limitations: FLOPs vs params; single species and tank (U-FFIA's 12,700-clip Tilapia farm data is the natural transfer test)</td><td>§9</td></tr>
   </tbody>
 </table>
 
-<p class="tcap"><b>Table 7.</b> Main results table to fill in (all rows evaluated on the same AV-FFIA split).</p>
+<p class="tcap"><b>Table 7.</b> Main results table. Published rows come from U-FFIA; "n/r" = not reported (U-FFIA reports accuracy only). Compute is in GMACs, U-FFIA's unit. Our rows are to be filled from <span class="mono">scripts/summarize.py</span>.</p>
 <table>
-  <thead><tr><th>Model</th><th>Modality</th><th class="num">Params (M)</th><th class="num">GFLOPs</th><th class="num">Acc (%)</th><th class="num">Macro-F1</th></tr></thead>
+  <thead><tr><th>Model</th><th>Modality</th><th class="num">Params (M)</th><th class="num">GMACs</th><th class="num">Acc (%)</th><th class="num">Macro-F1</th></tr></thead>
   <tbody>
-    <tr><td>U-FFIA paper, best audio-only</td><td>A</td><td class="num" colspan="4" style="text-align:center;color:#9a6b16">copy from the paper (not retrieved)</td></tr>
-    <tr><td>U-FFIA paper, best video-only</td><td>V</td><td class="num" colspan="4" style="text-align:center;color:#9a6b16">copy from the paper (not retrieved)</td></tr>
-    <tr><td>U-FFIA paper, AV (MBT)</td><td>AV</td><td class="num" colspan="4" style="text-align:center;color:#9a6b16">copy from the paper (not retrieved)</td></tr>
-    <tr><td>U-FFIA-like baseline, re-run here (<span class="mono">uffia_like_baseline.yaml</span>)</td><td>AV</td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td></tr>
-    <tr><td>Teacher: AST + VideoMAE + HCF</td><td>AV</td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td></tr>
+    <tr><td>Pre-CNN10 [U-FFIA Table I]</td><td>A</td><td class="num">5.0</td><td class="num">3.347</td><td class="num">85.9</td><td class="num">n/r</td></tr>
+    <tr><td>Pretrained-S3D [U-FFIA Table II]</td><td>V</td><td class="num">7.9</td><td class="num">22.826</td><td class="num">89.8</td><td class="num">n/r</td></tr>
+    <tr><td>Self-attention [U-FFIA Tables III–IV]</td><td>AV</td><td class="num">47.695</td><td class="num">68.404</td><td class="num">89.2</td><td class="num">n/r</td></tr>
+    <tr><td>MBT [U-FFIA Tables III–IV]</td><td>AV</td><td class="num">47.689</td><td class="num">68.690</td><td class="num">72.4</td><td class="num">n/r</td></tr>
+    <tr><td>Cross-attention [U-FFIA Tables III–IV], <b>SOTA</b></td><td>AV</td><td class="num">35.082</td><td class="num">60.933</td><td class="num">91.7</td><td class="num">n/r</td></tr>
+    <tr><td>U-FFIA + KD [U-FFIA Tables III–IV]</td><td>AV</td><td class="num">21.626</td><td class="num">15.488</td><td class="num">90.7</td><td class="num">n/r</td></tr>
+    <tr><td>Late-concat real baseline, re-run here (<span class="mono">uffia_like_baseline.yaml</span>)</td><td>AV</td><td class="num">14.938</td><td class="num">21.252</td><td class="num"></td><td class="num"></td></tr>
+    <tr><td>Teacher: PANNs CNN10 + S3D + HCF</td><td>AV</td><td class="num">15.874</td><td class="num">21.483</td><td class="num"></td><td class="num"></td></tr>
     <tr><td>Frozen timm + HCF side network</td><td>AV</td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td></tr>
-    <tr class="hl"><td>HyperAVNet-Q (KD), proposed</td><td>AV</td><td class="num">2.14</td><td class="num">2.37</td><td class="num"></td><td class="num"></td></tr>
-    <tr><td>HyperAVNet-O (KD)</td><td>AV</td><td class="num">1.24</td><td class="num">2.37</td><td class="num"></td><td class="num"></td></tr>
-    <tr><td>HyperAVNet-Q, real-valued twin (<i>n</i> = 1)</td><td>AV</td><td class="num">7.88</td><td class="num">2.37</td><td class="num"></td><td class="num"></td></tr>
+    <tr class="hl"><td>HyperAVNet-Q (KD), proposed</td><td>AV</td><td class="num">2.137</td><td class="num">1.180</td><td class="num"></td><td class="num"></td></tr>
+    <tr><td>HyperAVNet-O (KD)</td><td>AV</td><td class="num">1.235</td><td class="num">1.180</td><td class="num"></td><td class="num"></td></tr>
+    <tr><td>HyperAVNet-Q, real-valued twin (<i>n</i> = 1)</td><td>AV</td><td class="num">7.880</td><td class="num">1.180</td><td class="num"></td><td class="num"></td></tr>
   </tbody>
 </table>
 
 <h3>10.4&nbsp;&nbsp;Checklist before submission</h3>
 <ul class="check">
-  <li>Copy the U-FFIA numbers from the paper, and confirm that its split and clip set match ours (seed 25, 700/700 per class).</li>
+  <li>Confirm the split with the authors: the code rule gives 21,400 train clips, the paper's text says 21,000.</li>
+  <li>Obtain U-FFIA's bubble and pump noise recordings (or comparable ones) for <span class="mono">robustness.noise_dir</span>; white-noise results are not comparable with their Table III.</li>
   <li>Re-run the U-FFIA-like baseline through this pipeline, so the comparison does not depend on differences in preprocessing.</li>
   <li>Use 3 seeds for every reported number; add significance tests for the closest comparisons.</li>
-  <li>Report parameters <i>and</i> FLOPs, and state plainly that hypercomplex layers do not reduce FLOPs.</li>
+  <li>Report parameters <i>and</i> compute in U-FFIA's unit (GMACs, which they call FLOPs), and state plainly that hypercomplex layers do not reduce compute.</li>
   <li>Report the teacher's size and cost next to the student's, so readers see what distillation buys.</li>
   <li>Count teacher pretraining data (AudioSet, Kinetics) as external data in the comparison.</li>
   <li>Tune the frame count (U-FFIA hints at 20), the audio hop and the input size on val only, never on test.</li>
@@ -761,11 +822,12 @@ To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mon
 <!-- ====================================================================== A -->
 <h2>Appendix A&nbsp;&nbsp;Reproduction commands and code map</h2>
 <pre>pip install -r requirements.txt
-python -m pytest -q tests                                    # 55 offline tests
+python -m pytest -q tests                                    # 59 offline tests
 python train.py --build-manifest --video-root /data/AV-FFIA --audio-root /data/AV-FFIA_audio
-python train.py -c configs/teacher_ast_videomae.yaml         # stage 1: teacher
+python train.py -c configs/teacher_panns_s3d.yaml            # stage 1: teacher (PANNs CNN10 + S3D)
 python train.py -c configs/student_hyper_kd.yaml             # stage 2: distilled student
 python train.py -c configs/student_hyper.yaml --set model.fusion_stages=[2,3] --set name=fs23
+python train.py -c configs/student_hyper_kd.yaml --eval-only runs/student_hyper_q_kd/best.pt --robustness
 bash scripts/run_ablations.sh configs/student_hyper.yaml     # groups A-D
 python scripts/summarize.py runs > results.md                # Markdown results table
 python scripts/profile_model.py -c configs/student_hyper.yaml  # params / FLOPs / latency
@@ -776,9 +838,10 @@ python extract_features.py -c configs/frozen_timm_side.yaml --out feats/timm --v
     <tr><td class="mono">avffia/hyper.py</td><td><span class="mono">hlinear</span>, <span class="mono">hconv</span>, HyperAttention, HyperMlp, HyperBlock, HyperInvertedResidual, <span class="mono">reparameterize_hypercomplex</span></td></tr>
     <tr><td class="mono">avffia/fusion.py</td><td>HyperComponentFusion (HCF), HyperMBTFusion, ConcatFusion</td></tr>
     <tr><td class="mono">avffia/model.py</td><td>HyperAVNet: projectors, bottleneck, fusion schedule, feedback gates, heads, <span class="mono">forward_from_tokens</span></td></tr>
-    <tr><td class="mono">avffia/backbones.py</td><td>Students and the AST, VideoMAE, timm and torchvision wrappers (shared stage-token interface)</td></tr>
-    <tr><td class="mono">avffia/frontends.py</td><td>LogMel + SpecAugment, Kaldi fbank (AST), video normalisation</td></tr>
-    <tr><td class="mono">avffia/losses.py</td><td>AVLoss (CE + auxiliary), DistillLoss (KD + feature + relation)</td></tr>
+    <tr><td class="mono">avffia/backbones.py</td><td>Students and the PANNs, torchvision (S3D), timm, AST and VideoMAE wrappers (shared stage-token interface)</td></tr>
+    <tr><td class="mono">avffia/frontends.py</td><td>LogMel + SpecAugment + SimPF, Kaldi fbank (AST), video normalisation</td></tr>
+    <tr><td class="mono">avffia/losses.py</td><td>AVLoss (CE + auxiliary), DistillLoss (KD + feature + relation; Hinton or U-FFIA style)</td></tr>
+    <tr><td class="mono">avffia/corruptions.py</td><td>Robustness protocol: audio noise at SNR, video darkness and Gaussian noise</td></tr>
     <tr><td class="mono">avffia/data.py</td><td>U-FFIA-compatible manifest and split, decoding (decord or PyAV), clip cache, augmentation</td></tr>
     <tr><td class="mono">train.py, extract_features.py</td><td>Training, evaluation and distillation; cached-feature extraction</td></tr>
   </tbody>
@@ -791,7 +854,9 @@ python extract_features.py -c configs/frozen_timm_side.yaml --out feats/timm --v
   <li>A. Bojesomo, P. Liatsis, H. Al Marzouqi. Deep hypercomplex networks for spatiotemporal data processing: parameter efficiency and superior performance. <i>IEEE Signal Processing Magazine</i>, 41(3):101–112, 2024.</li>
   <li>A. Bojesomo, P. Liatsis, H. Al Marzouqi. Marine debris segmentation using a parameter-efficient octonion-based architecture. <i>IEEE GRSL</i>, 20, 2023.</li>
   <li>A. Bojesomo, H. Al-Marzouqi, P. Liatsis. Traffic flow prediction using deep sedenion networks. arXiv:2012.03874, 2020.</li>
-  <li>M. Cui et al. U-FFIA / AV-FFIA: multimodal fish feeding intensity assessment (dataset and unified model). github.com/FishMaster93/U-FFIA; arXiv:2309.05058.</li>
+  <li>M. Cui, X. Liu, H. Liu, Z. Du, T. Chen, G. Lian, D. Li, W. Wang. Multimodal fish feeding intensity assessment in aquaculture. arXiv:2309.05058v3, 2024 (code and data: github.com/FishMaster93/U-FFIA). Check the final journal version.</li>
+  <li>M. Cui et al. Fish feeding intensity assessment in aquaculture: a new audio dataset AFFIA3K and a deep learning algorithm. <i>IEEE MLSP</i>, 2022.</li>
+  <li>X. Liu, H. Liu, Q. Kong, X. Mei, M. D. Plumbley, W. Wang. Simple pooling front-ends for efficient audio classification (SimPF). <i>IEEE ICASSP</i>, 2023.</li>
   <li>A. Nagrani et al. Attention bottlenecks for multimodal fusion (MBT). <i>NeurIPS</i>, 2021.</li>
   <li>Y. Gong, Y.-A. Chung, J. Glass. AST: Audio Spectrogram Transformer. <i>Interspeech</i>, 2021.</li>
   <li>Z. Tong et al. VideoMAE: masked autoencoders are data-efficient learners for self-supervised video pre-training. <i>NeurIPS</i>, 2022.</li>
@@ -805,6 +870,9 @@ python extract_features.py -c configs/frozen_timm_side.yaml --out feats/timm --v
   <li>M. Sandler et al. MobileNetV2: inverted residuals and linear bottlenecks. <i>CVPR</i>, 2018.</li>
   <li>D. S. Park et al. SpecAugment. <i>Interspeech</i>, 2019.</li>
   <li>H. Touvron et al. Going deeper with image transformers (LayerScale). <i>ICCV</i>, 2021.</li>
+  <li>J. Carreira, A. Zisserman. Quo vadis, action recognition? A new model and the Kinetics dataset (I3D). <i>CVPR</i>, 2017.</li>
+  <li>Y. Zhang et al. MSIF-MobileNetV3 for fish feeding behavior analysis. <i>Aquacultural Engineering</i>, 102:102338, 2023.</li>
+  <li>N. Neverova et al. ModDrop: adaptive multi-modal gesture recognition (modality dropout). <i>IEEE TPAMI</i>, 2016.</li>
 </ol>
 
 </body>

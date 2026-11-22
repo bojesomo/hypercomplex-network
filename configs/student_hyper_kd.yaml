@@ -1,4 +1,5 @@
-# The proposed efficient model: hypercomplex student distilled from the AST+VideoMAE teacher.
+# The proposed efficient model: hypercomplex student distilled from the PANNs-CNN10 + S3D teacher
+# (the strongest pretrained audio and video models in the U-FFIA benchmark).
 # The data runs at the teacher's 224 px; the student downsamples internally to 112 px.
 _base_: student_hyper.yaml
 name: student_hyper_q_kd
@@ -6,6 +7,8 @@ data: {size: 256, crop: 224, num_frames: 16}
 model:
   video: {size: [112, 112]}
 distill:
-  teacher_config: configs/teacher_ast_videomae.yaml
-  teacher_ckpt: runs/teacher_ast_videomae/best.pt
+  teacher_config: configs/teacher_panns_s3d.yaml
+  teacher_ckpt: runs/teacher_panns_s3d/best.pt
   loss: {T: 2.0, alpha: 0.7, beta: 1.0, gamma: 0.5, unimodal_weight: 0.5}
+  # U-FFIA's own KD (eq. 9: lambda=0.5, tau=2.5, teacher-only temperature) as an ablation:
+  # loss: {style: uffia, T: 2.5, alpha: 1.0, beta: 0.0, gamma: 0.0}

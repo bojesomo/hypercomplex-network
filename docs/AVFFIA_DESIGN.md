@@ -6,20 +6,51 @@ This document describes the model, the training recipe and the ablation protocol
 
 ## 1. Task and protocol (kept identical to U-FFIA for comparability)
 
-* AV-FFIA: about 27k paired audio and video clips, 4 classes. Label ids follow the U-FFIA code:
-  `none=0, strong=1, medium=2, weak=3`.
+* AV-FFIA: 27,000 synchronised 2 s audio and video clips of *Oplegnathus punctatus* (6,750 per
+  class). Hydrophone audio at 256 kHz, downsampled to 64 kHz; video at 25 fps. Label ids follow
+  the U-FFIA code: `none=0, strong=1, medium=2, weak=3`.
 * Split: for each class, shuffle with `np.random.RandomState(25)`, then take 700 test clips,
   700 val clips and the rest as train. `python train.py --build-manifest ...` reproduces this rule
-  and writes `data/avffia.csv`.
-* Audio: 2 s at 64 kHz (as in U-FFIA). Video: 16 uniformly sampled frames.
+  and writes `data/avffia.csv`. This gives 21,400 train clips; the paper's text says 21,000,
+  which does not add up to 27,000. Val and test (2,800 each) agree.
+* Audio: 2 s at 64 kHz, log-mel with window 2048, hop 1024 and 128 bins (U-FFIA §VI-A), with
+  optional SimPF spectral pooling (`simpf: 0.5`). Video: 16 uniformly sampled frames (U-FFIA's
+  S3D used 20; the U-FFIA model 4).
+* Robustness (U-FFIA Table III protocol, automatic after training): audio noise at SNR −10, −5,
+  0, 10 and 20 dB (use U-FFIA-style bubble and pump recordings via `robustness.noise_dir`;
+  otherwise white noise, which is not comparable), video darkness and Gaussian noise, and
+  missing audio or missing video.
 * Metrics: accuracy (the U-FFIA headline metric), macro-F1, per-class F1 and the confusion matrix,
   plus audio-only and video-only accuracy from the auxiliary heads, parameters and FLOPs.
   Model selection is on val accuracy; test is reported once.
 
-> **Check against the paper before claiming SOTA.** The arXiv paper (2309.05058) was not
-> reachable from the build environment, so the published U-FFIA numbers are *not* copied here.
-> Fill table 6 from the paper, and also run `configs/uffia_like_baseline.yaml` (MobileNetV2 +
-> S3D + MBT, real-valued) through this exact pipeline, so the comparison is like-for-like.
+### Published results to beat (U-FFIA, arXiv:2309.05058v3, Tables I–IV)
+
+The compute unit in U-FFIA's tables is multiply-accumulates (MACs), although they label it
+FLOPs. Checked: torchvision S3D at 20×224² gives 22.4 GMACs with our counter, against 22.8 in
+their Table II. `train.py` reports both `gflops` and `gmacs`.
+
+| model | modality | acc. | params (M) | GMACs |
+|---|---|---|---|---|
+| Pre-CNN10 (best audio) | A | 0.859 | 5.0 | 3.347 |
+| Pre-AST | A | 0.736 | 85.3 | 12.440 |
+| Pretrained-S3D (best video, 20 frames) | V | 0.898 | 7.9 | 22.826 |
+| Pre-ViViT | V | 0.743 | 78.2 | 77.344 |
+| **Cross-attention (SOTA)** | AV | **0.917** | 35.082 | 60.933 |
+| Self-attention | AV | 0.892 | 47.695 | 68.404 |
+| MBT | AV | 0.724 | 47.689 | 68.690 |
+| U-FFIA + KD | AV | 0.907 | 21.626 | 15.488 |
+
+AV accuracy under bubble and pump noise, from −10 to 20 dB: cross-attention 0.727 / 0.768 /
+0.805 / 0.834 / 0.867; U-FFIA + KD 0.726 / 0.779 / 0.806 / 0.835 / 0.876.
+
+What this implies for the design:
+1. Pretrained CNNs beat transformers on this data, so the teacher is **PANNs CNN10 + S3D**
+   (`configs/teacher_panns_s3d.yaml`). The AST + VideoMAE teacher is kept as an ablation only.
+2. MBT fails on AV-FFIA (0.724), which U-FFIA attributes to sequential bottleneck attention.
+   HCF reads both modalities in parallel and mixes them in one Hamilton product.
+3. The targets are **> 0.917 accuracy** and better noise robustness, at about 2 M parameters
+   and about 1.2 GMACs: 10× / 13× below U-FFIA and 16× / 52× below cross-attention.
 
 ## 2. Architecture
 
@@ -75,11 +106,12 @@ vice versa. Zero initialisation means training starts exactly at the late-fusion
 |---|---|---|
 | `hyper_audio` | hypercomplex inverted-residual CNN on log-mel (0.75M at n=4) | efficient student |
 | `hyper_video` | hypercomplex 3D inverted-residual CNN (0.82M at n=4) | efficient student |
-| `ast` | AST, AudioSet-pretrained, position embeddings interpolated to 2 s (about 5x cheaper than padding to 10 s) | teacher / extractor |
-| `videomae` | VideoMAE-B, Kinetics-pretrained, tokens grid-pooled | teacher / extractor |
+| `panns` | PANNs CNN10 / CNN14, AudioSet (official checkpoint names); best audio model on AV-FFIA | **teacher** / extractor |
+| `ast` | AST, AudioSet-pretrained, position embeddings interpolated to 2 s; 0.736 in U-FFIA | ablation |
+| `videomae` | VideoMAE-B, Kinetics-pretrained, tokens grid-pooled; ViViT got 0.743 in U-FFIA | ablation |
 | `timm_audio` | any timm CNN on 1-channel mel (EfficientNet, MobileNetV2/V4, ConvNeXt) | extractor |
 | `timm_frames` | any timm 2D net per frame, plus a hypercomplex temporal adapter | extractor |
-| `tv_video` | torchvision Kinetics R(2+1)D-18, R3D-18, MC3-18, S3D (the U-FFIA video backbone) | extractor / baseline |
+| `tv_video` | torchvision Kinetics S3D (U-FFIA's video teacher, 0.898), R(2+1)D-18, R3D-18, MC3-18 | **teacher** / extractor |
 
 `freeze: true` with `unfreeze: [...]` gives frozen or partly fine-tuned extractors. The fusion
 network then runs as a hypercomplex *side network* over their intermediate layers (cheap
@@ -91,9 +123,12 @@ augmented views), after which fusion training takes minutes.
 * `AVLoss`: label-smoothed CE on the fused logits, plus 0.3 × the mean CE of the audio-only and
   video-only heads (counters modality imbalance; the weaker audio branch would otherwise
   under-train).
-* Modality dropout (p = 0.1 per modality) at the fusion inputs: robustness when one modality is
-  uninformative (turbid water, rain or pump noise).
-* `DistillLoss` (student ← teacher): KL at T = 2 on the fused logits, plus unimodal head-to-head KL;
+* Modality dropout (p = 0.1 per modality; U-FFIA notation p_av = 1 − 2p, p_a = p_v = p). One
+  per-sample mask applies at every fusion input and at the fused head, and the same switch
+  (`model.missing`) simulates a missing modality at test time. U-FFIA Table V shows that heavy
+  dropout costs clean AV accuracy; the auxiliary heads let HyperAVNet keep p small.
+* `DistillLoss` (student ← teacher): KL at T = 2 on the fused logits (`style: uffia` gives
+  U-FFIA's eq. 9, with T = 2.5 on the teacher only), plus unimodal head-to-head KL;
   cosine alignment of the pooled fused, audio and video embeddings through hypercomplex
   projectors; and RKD-style batch-relation matching.
 * AdamW, cosine schedule with warmup, EMA weights (0.999), bf16 AMP, gradient clipping. Pretrained
@@ -109,23 +144,23 @@ calling `reparameterize_hypercomplex`, then `load_state_dict`.
 **Honest efficiency note.** Hypercomplex layers cut **parameters and memory** (`1/n`), not
 FLOPs: the expanded kernel is dense. Default student (`configs/student_hyper.yaml`, 16×112²
 frames + 2 s audio): **2.14M params at n=4** against 7.88M for the identical real network (n=1),
-both at 2.37 GFLOPs per clip. To reduce FLOPs, shrink `dims`, `num_frames` or the input size.
+both at 2.36 GFLOPs = **1.18 GMACs** per clip. That is 1.09 GMACs with SimPF 0.5, 0.69 at 8
+frames and 1.42 at 20 frames. To reduce compute, shrink `dims`, `num_frames` or the input size.
 
 ## 3. Recommended recipe for SOTA
 
-1. **Teacher**: `configs/teacher_ast_videomae.yaml`. AST + VideoMAE-B with the last two blocks
-   unfrozen, and HCF side-fusion at layers 3, 6, 9 and 12. This aims at the highest possible
-   accuracy; its size does not matter.
+1. **Teacher**: `configs/teacher_panns_s3d.yaml`. PANNs CNN10 (AudioSet; put
+   `Cnn10_mAP=0.380.pth` from Zenodo 3987831 in `pretrained/`) + S3D (Kinetics), fine-tuned
+   with HCF fusion over their last four stages: 15.9M params, 21.5 GMACs.
 2. **Student**: `configs/student_hyper_kd.yaml`. A 2.1M-parameter quaternion HyperAVNet with
    progressive fusion `[1,2,3]` and feedback, distilled from the teacher. This is the
    efficient model to report against SOTA.
 3. **Cheap alternative**: `configs/frozen_timm_side.yaml` with `extract_features.py` (frozen
    ImageNet backbones; only about 1.2M trainable fusion parameters).
 
-Things to tune on AV-FFIA (they are dataset-specific and unverified here): the frame count
-(the U-FFIA code hints at 20 frames), the input resolution, the audio hop (512 is used here
-instead of U-FFIA's 1024, for finer time resolution), `n_divs ∈ {4, 8}`, `num_bottleneck`, and
-the KD temperature.
+Things to tune on AV-FFIA, on val only: the frame count (U-FFIA's S3D used 20), the input
+resolution, SimPF on or off, `n_divs ∈ {4, 8}`, `num_bottleneck`, modality dropout, and the KD
+style and temperature.
 
 ## 4. Ablation protocol (`scripts/run_ablations.sh`)
 
@@ -134,8 +169,10 @@ the KD temperature.
 | A | fusion depth, deep to early | `[3]`, `[2,3]`, `[1,2,3]`, `[0,1,2,3]`; single `[0]`, `[1]`, `[2]`; `[1,2,3]` without feedback |
 | B | algebra of the network | n = 1, 2, 4, 8, 16 |
 | C | fusion operator | HCF-complex, HCF-quaternion, HCF-octonion, MBT, concat |
-| D | regularisers | no modality dropout, no auxiliary heads |
-| E | distillation | the A–D winners with and without `distill` (use `configs/student_hyper_kd.yaml` as the base) |
+| D | regularisers | modality dropout p ∈ {0, 0.1, 0.25} (cf. U-FFIA Table V), no auxiliary heads |
+| E | distillation | the A–D winners with and without `distill` (base: `configs/student_hyper_kd.yaml`); multi-level KD vs U-FFIA eq. (9) |
+| F | robustness | automatic after each run: SNR −10…20 dB, darkness, Gaussian noise, missing modality |
+| G | audio front-end | SimPF k = 0.5 vs none |
 
 ```bash
 bash scripts/run_ablations.sh configs/student_hyper.yaml
@@ -149,12 +186,13 @@ models are small.
 
 ## 5. Results table template
 
-| model | modality | params (M) | GFLOPs | test acc | macro-F1 |
+| model | modality | params (M) | GMACs | test acc | macro-F1 |
 |---|---|---|---|---|---|
-| U-FFIA paper: audio-only best | A | *(from paper)* | | | |
-| U-FFIA paper: video-only best | V | *(from paper)* | | | |
-| U-FFIA paper: AV (MBT) | AV | *(from paper)* | | | |
-| U-FFIA-like baseline (this pipeline) | AV | | | | |
-| Teacher: AST + VideoMAE + HCF | AV | | | | |
-| **HyperAVNet-Q (KD)** | AV | 2.14 | 2.37 | | |
-| HyperAVNet-O (KD) | AV | 1.24 | 2.37 | | |
+| Pre-CNN10 [U-FFIA] | A | 5.0 | 3.347 | 0.859 | n/r |
+| Pretrained-S3D [U-FFIA] | V | 7.9 | 22.826 | 0.898 | n/r |
+| Cross-attention [U-FFIA], SOTA | AV | 35.082 | 60.933 | 0.917 | n/r |
+| U-FFIA + KD [U-FFIA] | AV | 21.626 | 15.488 | 0.907 | n/r |
+| Late-concat real baseline (this pipeline) | AV | 14.938 | 21.252 | | |
+| Teacher: PANNs CNN10 + S3D + HCF | AV | 15.874 | 21.483 | | |
+| **HyperAVNet-Q (KD)** | AV | 2.137 | 1.180 | | |
+| HyperAVNet-O (KD) | AV | 1.235 | 1.180 | | |

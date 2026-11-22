@@ -29,7 +29,12 @@ class AVLoss(nn.Module):
         return losses
 
 
-def kd_kl(student_logits, teacher_logits, T: float):
+def kd_kl(student_logits, teacher_logits, T: float, style: str = 'hinton'):
+    """``hinton``: both sides softened by T, scaled by T^2 (Hinton et al., 2015).
+    ``uffia``: only the teacher is softened, KL(softmax(t / T) || softmax(s)), as in U-FFIA eq. (9)
+    (Cui et al., 2024). They argue this suits cross-model KD, where the logit scales differ."""
+    if style == 'uffia':
+        return F.kl_div(F.log_softmax(student_logits, -1), F.softmax(teacher_logits / T, -1), reduction='batchmean')
     return F.kl_div(F.log_softmax(student_logits / T, -1), F.softmax(teacher_logits / T, -1),
                     reduction='batchmean') * T * T
 
@@ -46,8 +51,10 @@ class DistillLoss(nn.Module):
     """
 
     def __init__(self, student_dim: int, teacher_dim: int, n_divs: int = 4, T: float = 2.0, alpha: float = 0.7,
-                 beta: float = 1.0, gamma: float = 0.5, unimodal_weight: float = 0.5):
+                 beta: float = 1.0, gamma: float = 0.5, unimodal_weight: float = 0.5, style: str = 'hinton'):
+        # U-FFIA's own setting is style='uffia', T=2.5, with CE and KD weighted 0.5 / 0.5 (alpha=1.0)
         super().__init__()
+        self.style = style
         self.T, self.alpha, self.beta, self.gamma, self.uw = T, alpha, beta, gamma, unimodal_weight
         self.proj = nn.ModuleDict({k: hlinear(student_dim, teacher_dim, n_divs) for k in ('feat', 'feat_a', 'feat_v')})
 
@@ -58,10 +65,10 @@ class DistillLoss(nn.Module):
 
     def forward(self, s: Dict[str, torch.Tensor], t: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         losses = {}
-        kd = kd_kl(s['logits'], t['logits'], self.T)
+        kd = kd_kl(s['logits'], t['logits'], self.T, self.style)
         if 'logits_a' in s and 'logits_a' in t:
-            kd = kd + self.uw * 0.5 * (kd_kl(s['logits_a'], t['logits_a'], self.T) +
-                                       kd_kl(s['logits_v'], t['logits_v'], self.T))
+            kd = kd + self.uw * 0.5 * (kd_kl(s['logits_a'], t['logits_a'], self.T, self.style) +
+                                       kd_kl(s['logits_v'], t['logits_v'], self.T, self.style))
         losses['kd'] = self.alpha * kd
         if self.beta > 0:
             feat = 0.0

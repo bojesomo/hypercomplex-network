@@ -42,14 +42,17 @@ If using this code, please cite
 `avffia/` contains HyperAVNet, an efficient audio-visual classifier for the
 [AV-FFIA dataset](https://github.com/FishMaster93/U-FFIA). It has hypercomplex backbones,
 attention and heads, a hypercomplex component fusion block applied at configurable depths
-(deep to early), pretrained AST, VideoMAE, timm and torchvision models as teachers or frozen
-extractors, and multi-level distillation. See [docs/AVFFIA_DESIGN.md](docs/AVFFIA_DESIGN.md).
+(deep to early), pretrained PANNs, S3D, timm and other models as teachers or frozen extractors,
+multi-level distillation, and U-FFIA's noise-robustness protocol. Target: beat the published
+SOTA (0.917, cross-attention) at 2.1M params / 1.2 GMACs. See [docs/AVFFIA_DESIGN.md](docs/AVFFIA_DESIGN.md).
 
 ```bash
 pip install -r requirements.txt
 python -m pytest -q tests                                     # offline smoke tests
 python train.py --build-manifest --video-root /data/AV-FFIA --audio-root /data/AV-FFIA_audio
-python train.py -c configs/teacher_ast_videomae.yaml          # 1) teacher
+python train.py -c configs/teacher_panns_s3d.yaml             # 1) teacher (PANNs CNN10 + S3D)
 python train.py -c configs/student_hyper_kd.yaml              # 2) distilled 2.1M-param student
 bash scripts/run_ablations.sh configs/student_hyper.yaml      # fusion-depth / algebra / operator ablations
 ```
+
+Architecture and paper-writing guide (PDF): [docs/HyperAVNet_architecture.pdf](docs/HyperAVNet_architecture.pdf).

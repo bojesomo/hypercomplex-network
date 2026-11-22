@@ -56,6 +56,7 @@ class HyperAVNet(nn.Module):
         self.proj_stages = sorted(set(self.fusion_stages) | {S - 1})
         self.inject = inject and self.audio.stagewise and self.video.stagewise
         self.modality_dropout = modality_dropout
+        self.missing: Optional[str] = None  # set to 'audio' / 'video' for missing-modality tests
         self.dim = dim
 
         self.proj_a = nn.ModuleDict({str(s): StageProjector(self.audio.stage_dims[s], dim, n_divs)
@@ -88,27 +89,41 @@ class HyperAVNet(nn.Module):
             self.head_v = nn.Sequential(nn.Dropout(head_dropout), nn.Linear(dim, num_classes))
 
     # ------------------------------------------------------------------------------
-    def _drop_modalities(self, a, v):
-        """Modality dropout (training only): randomly blank one modality per sample at the
-        fusion input, so the model stays robust when one modality is uninformative or missing."""
+    def _keep_masks(self, B: int, device) -> Optional[tuple]:
+        """Per-sample keep masks ``(keep_a, keep_v)`` of shape (B, 1, 1), or None (keep all).
+
+        * Training: modality dropout. Each sample drops audio with probability p and video with
+          probability p, never both; in U-FFIA's notation p_av = 1 - 2p and p_a = p_v = p.
+        * ``self.missing in {'audio', 'video'}``: that modality is treated as absent (test-time
+          missing-modality evaluation).
+
+        The same mask is applied at every fusion input and at the fused head, so a modality
+        that is "missing" is missing everywhere. The auxiliary unimodal heads always see their
+        own modality.
+        """
+        if self.missing in ('audio', 'video'):
+            keep_a = torch.full((B, 1, 1), float(self.missing != 'audio'), device=device)
+            keep_v = torch.full((B, 1, 1), float(self.missing != 'video'), device=device)
+            return keep_a, keep_v
         if not self.training or self.modality_dropout <= 0:
-            return a, v
-        B = a.shape[0]
-        r = torch.rand(B, device=a.device)
+            return None
+        r = torch.rand(B, device=device)
         keep_a = (r >= self.modality_dropout).float().view(B, 1, 1)
         keep_v = ((r < self.modality_dropout) | (r >= 2 * self.modality_dropout)).float().view(B, 1, 1)
-        return a * keep_a, v * keep_v
+        return keep_a, keep_v
 
-    def _fuse(self, s: int, z, a_tok, v_tok):
+    def _fuse(self, s: int, z, a_tok, v_tok, keep):
         a, v = self.proj_a[str(s)](a_tok), self.proj_v[str(s)](v_tok)
-        a, v = self._drop_modalities(a, v)
-        return self.fuse[str(s)](z, a, v), a, v
+        if keep is not None:
+            a, v = a * keep[0], v * keep[1]
+        return self.fuse[str(s)](z, a, v)
 
-    def _heads(self, z, a_last, v_last, fused_tokens) -> Dict[str, torch.Tensor]:
+    def _heads(self, z, a_last, v_last, fused_tokens, keep) -> Dict[str, torch.Tensor]:
         zf = self.norm_z(z).mean(1)
         af = self.norm_a(a_last).mean(1)
         vf = self.norm_v(v_last).mean(1)
-        out = {'logits': self.head(torch.cat([zf, af, vf], -1)), 'feat': zf, 'feat_a': af, 'feat_v': vf,
+        af_f, vf_f = (af, vf) if keep is None else (af * keep[0][:, 0], vf * keep[1][:, 0])
+        out = {'logits': self.head(torch.cat([zf, af_f, vf_f], -1)), 'feat': zf, 'feat_a': af, 'feat_v': vf,
                'fused_tokens': fused_tokens}
         if self.aux_heads:
             out['logits_a'] = self.head_a(af)
@@ -119,15 +134,16 @@ class HyperAVNet(nn.Module):
     def forward_from_tokens(self, a_stages: List[torch.Tensor], v_stages: List[torch.Tensor]):
         """Side-network fusion over precomputed (or frozen) backbone stage tokens."""
         B = a_stages[0].shape[0]
+        keep = self._keep_masks(B, a_stages[0].device)
         z = self.bottleneck.expand(B, -1, -1)
         fused = {}
         for s in self.fusion_stages:
-            z, _, _ = self._fuse(s, z, a_stages[s], v_stages[s])
+            z = self._fuse(s, z, a_stages[s], v_stages[s], keep)
             fused[s] = z
         S = self.num_stages - 1
         a_last = self.proj_a[str(S)](a_stages[S])
         v_last = self.proj_v[str(S)](v_stages[S])
-        return self._heads(z, a_last, v_last, fused)
+        return self._heads(z, a_last, v_last, fused, keep)
 
     def forward(self, waveform: torch.Tensor, video: torch.Tensor):
         if not self.inject:
@@ -135,13 +151,14 @@ class HyperAVNet(nn.Module):
 
         # Stage-wise interleaved execution with cross-modal feedback (early fusion).
         ha, hv = self.audio.prepare(waveform), self.video.prepare(video)
+        keep = self._keep_masks(waveform.shape[0], waveform.device)
         z = self.bottleneck.expand(waveform.shape[0], -1, -1)
         fused = {}
         S = self.num_stages
         for s in range(S):
             ha, hv = self.audio.run_stage(s, ha), self.video.run_stage(s, hv)
             if str(s) in self.fuse:
-                z, _, _ = self._fuse(s, z, self.audio.tokens(s, ha), self.video.tokens(s, hv))
+                z = self._fuse(s, z, self.audio.tokens(s, ha), self.video.tokens(s, hv), keep)
                 fused[s] = z
                 if str(s) in self.inj_a:
                     g = z.mean(1)
@@ -149,7 +166,7 @@ class HyperAVNet(nn.Module):
                     hv = self.video.modulate(hv, torch.tanh(self.inj_v[str(s)](g)))
         a_last = self.proj_a[str(S - 1)](self.audio.tokens(S - 1, ha))
         v_last = self.proj_v[str(S - 1)](self.video.tokens(S - 1, hv))
-        return self._heads(z, a_last, v_last, fused)
+        return self._heads(z, a_last, v_last, fused, keep)
 
 
 def build_model(cfg: dict) -> HyperAVNet:

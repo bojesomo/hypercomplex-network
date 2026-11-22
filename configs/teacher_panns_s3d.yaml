@@ -1,0 +1,27 @@
+# Recommended teacher: the strongest pretrained single-modality models in the U-FFIA benchmark
+# (Pre-CNN10 audio 0.859, Table I; Pretrained-S3D video 0.898, Table II), fine-tuned jointly
+# with HCF fusion over their last four stages. Checkpoints:
+#   PANNs  Cnn10_mAP=0.380.pth  (zenodo.org/record/3987831; set model.audio.checkpoint)
+#   S3D    Kinetics-400 weights from torchvision (downloaded automatically)
+_base_: base.yaml
+name: teacher_panns_s3d
+data: {size: 256, crop: 224, num_frames: 16}   # U-FFIA's S3D used 20 frames; try num_frames: 20
+train: {epochs: 30, batch_size: 16, lr: 3.0e-4, backbone_lr_mult: 0.3}
+model:
+  num_classes: 4
+  dim: 384
+  n_divs: 4
+  fusion: hcf
+  fusion_algebra: 4
+  fusion_stages: [0, 1, 2, 3]
+  num_bottleneck: 16
+  num_heads: 6
+  audio:
+    type: panns
+    model_name: cnn10            # cnn14 is also supported (79.7M params, 0.856 in U-FFIA Table I)
+    checkpoint: pretrained/Cnn10_mAP=0.380.pth
+    frontend: {sample_rate: 64000, n_fft: 2048, hop: 512, n_mels: 64}
+  video:
+    type: tv_video
+    model_name: s3d
+    grid: 2

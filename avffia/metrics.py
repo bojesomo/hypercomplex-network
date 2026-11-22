@@ -21,7 +21,11 @@ def classification_metrics(logits: torch.Tensor, target: torch.Tensor, num_class
 
 
 def count_flops(model: nn.Module, *inputs) -> int:
-    """Forward FLOPs (multiply and add counted separately, i.e. 2 x MACs) from PyTorch's FlopCounterMode."""
+    """Forward FLOPs (multiply and add counted separately, i.e. 2 x MACs) from PyTorch's FlopCounterMode.
+
+    Note: the "FLOPs" in the U-FFIA paper's tables are multiply-accumulates (MACs). Checked:
+    torchvision S3D at 20x224^2 is 22.4 GMACs here vs 22.8 "GFLOPs" in U-FFIA Table II. Divide
+    by 2 (``gmacs`` in train.py's stats) before comparing with U-FFIA numbers."""
     from torch.utils.flop_counter import FlopCounterMode
     was = model.training
     model.eval()

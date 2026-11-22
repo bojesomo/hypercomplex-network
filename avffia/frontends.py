@@ -12,16 +12,32 @@ KINETICS_MEAN = (0.43216, 0.394666, 0.37645)
 KINETICS_STD = (0.22803, 0.22145, 0.216989)
 
 
+def simpf_pool(x: torch.Tensor, rate: float, dim: int = -1) -> torch.Tensor:
+    """SimPF spectral pooling (Liu et al., ICASSP 2023), as used by U-FFIA: take the DFT along
+    the time axis, keep the central (low-frequency) ``rate`` fraction of the coefficients, and
+    inverse-transform. This compresses ``T`` frames to ``round(rate * T)`` while keeping the
+    slow spectral envelope."""
+    T = x.shape[dim]
+    n = max(1, int(round(rate * T)))
+    X = torch.fft.fftshift(torch.fft.fft(x.float(), dim=dim), dim=dim)
+    start = (T - n) // 2
+    X = X.narrow(dim, start, n)
+    return torch.fft.ifft(torch.fft.ifftshift(X, dim=dim), dim=dim).real * (n / T)
+
+
 class LogMel(nn.Module):
     """Waveform ``(B, L)`` to log-mel ``(B, 1, T, F)``, with SpecAugment while training.
 
-    The U-FFIA reference set-up is sr=64 kHz, window 2048, hop 1024 and 64 mel bins
-    (its ``fmax=128000`` is above Nyquist, so it is clipped to sr/2 here).
+    U-FFIA (Cui et al., 2024, Sec. VI-A) uses sr=64 kHz, a Hann window of 2048, hop 1024 and
+    128 mel bins (a 2 s clip gives 128 x 128), then SimPF spectral pooling at k=0.5 down to
+    64 x 128. ``simpf=k`` reproduces that pooling (see ``simpf_pool``). The U-FFIA code's
+    ``fmax=128000`` is above Nyquist, so it is clipped to sr/2 here.
     """
 
     def __init__(self, sample_rate=64000, n_fft=2048, hop=1024, n_mels=64, fmin=50.0, fmax=None,
-                 freq_mask=8, time_mask=16, n_masks=2, normalize='bn'):
+                 freq_mask=8, time_mask=16, n_masks=2, normalize='bn', simpf=None):
         super().__init__()
+        self.simpf = simpf
         fmax = min(fmax or sample_rate / 2, sample_rate / 2)
         self.mel = torchaudio.transforms.MelSpectrogram(
             sample_rate=sample_rate, n_fft=n_fft, win_length=n_fft, hop_length=hop, f_min=fmin, f_max=fmax,
@@ -38,6 +54,8 @@ class LogMel(nn.Module):
     def forward(self, wav):
         with torch.autocast(device_type=wav.device.type, enabled=False):
             x = self.to_db(self.mel(wav.float()))  # (B, F, T)
+            if self.simpf:
+                x = simpf_pool(x, self.simpf)
         if self.training:
             for _ in range(self.n_masks):
                 if self.fmask is not None:

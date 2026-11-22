@@ -19,7 +19,7 @@ model:
     n_divs: 4
     dims: [48, 96, 160, 256]
     depths: [2, 2, 3, 2]
-    frontend: {sample_rate: 64000, n_fft: 2048, hop: 512, n_mels: 64}
+    frontend: {sample_rate: 64000, n_fft: 2048, hop: 1024, n_mels: 128}   # U-FFIA set-up: 128 x 128 log-mel (add simpf: 0.5 for SimPF)
   video:
     type: hyper_video
     n_divs: 4

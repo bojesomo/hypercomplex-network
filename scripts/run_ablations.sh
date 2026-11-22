@@ -34,6 +34,17 @@ run C_hcf_c  --set model.fusion=hcf --set model.fusion_algebra=2
 run C_mbt    --set model.fusion=mbt
 run C_concat --set model.fusion=concat
 
-# D. Regularisers
+# D. Regularisers (modality_dropout p means U-FFIA p_av = 1-2p, p_a = p_v = p; cf. U-FFIA Table V)
 run D_no_moddrop --set model.modality_dropout=0.0
+run D_moddrop25  --set model.modality_dropout=0.25
 run D_no_aux     --set train.aux_weight=0.0
+
+# G. Audio front-end: U-FFIA SimPF spectral pooling (k = 0.5 halves the time frames)
+run G_simpf05    --set model.audio.frontend.simpf=0.5
+
+# Group E (distillation) uses configs/student_hyper_kd.yaml as the base config; compare its
+# default multi-level KD with U-FFIA's eq. (9):
+#   --set distill.loss.style=uffia --set distill.loss.T=2.5 --set distill.loss.alpha=1.0 \
+#   --set distill.loss.beta=0.0 --set distill.loss.gamma=0.0
+# Group F (robustness: SNR -10..20 dB, darkness, Gaussian noise, missing modality) runs
+# automatically after every training (robustness.enabled in configs/base.yaml).

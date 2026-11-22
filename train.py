@@ -127,11 +127,13 @@ def forward(model, b):
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, num_classes, amp_dtype):
+def evaluate(model, loader, device, num_classes, amp_dtype, corrupt=None):
     model.eval()
     logits, la, lv, ys = [], [], [], []
-    for b in loader:
+    for i, b in enumerate(loader):
         b = to_device(b, device)
+        if corrupt is not None:
+            b = corrupt(b, i)
         with torch.autocast(device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
             out = forward(model, b)
         logits.append(out['logits'].float().cpu())
@@ -147,6 +149,24 @@ def evaluate(model, loader, device, num_classes, amp_dtype):
     return res
 
 
+def robustness(model, loader, device, num_classes, amp_dtype, cfg):
+    """U-FFIA-style robustness protocol: audio noise at fixed SNRs, video darkness and Gaussian
+    noise, and missing modalities. Returns ``{condition: accuracy}``."""
+    from avffia.corruptions import build_corruptions
+    rc = cfg.get('robustness', {})
+    res = {}
+    cached = 'a_tokens' in next(iter(loader))  # cached features: input corruptions do not apply
+    for name, fn in ({} if cached else build_corruptions(cfg['data']['sample_rate'], rc.get('noise_dir'),
+                                                          rc.get('seed', 0))).items():
+        res[name] = evaluate(model, loader, device, num_classes, amp_dtype, corrupt=fn)['acc']
+    for m in ('audio', 'video'):
+        if hasattr(model, 'missing'):
+            model.missing = m
+            res[f'missing_{m}'] = evaluate(model, loader, device, num_classes, amp_dtype)['acc']
+            model.missing = None
+    return res
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('-c', '--config', default='configs/student_hyper.yaml')
@@ -159,6 +179,7 @@ def main():
     ap.add_argument('--test-per-class', type=int, default=700)
     ap.add_argument('--val-per-class', type=int, default=700)
     ap.add_argument('--eval-only', help='checkpoint to evaluate on the test split')
+    ap.add_argument('--robustness', action='store_true', help='also run the noise / missing-modality protocol')
     args = ap.parse_args()
 
     if args.build_manifest:
@@ -199,13 +220,17 @@ def main():
     stats = {'params_total': count_parameters(model), 'params_trainable': count_parameters(model, True)}
     try:
         stats['gflops'] = count_flops(model, wav0, vid0) / 1e9
+        stats['gmacs'] = stats['gflops'] / 2  # the unit U-FFIA reports as "FLOPs"
     except Exception as e:  # pragma: no cover
         stats['gflops'] = f'n/a ({e})'
     print(json.dumps(stats))
 
     if args.eval_only:
         model.load_state_dict(torch.load(args.eval_only, map_location=device))
-        print(json.dumps(evaluate(model, loaders['test'], device, num_classes, amp_dtype), indent=1))
+        res = evaluate(model, loaders['test'], device, num_classes, amp_dtype)
+        if args.robustness:
+            res['robustness'] = robustness(model, loaders['test'], device, num_classes, amp_dtype, cfg)
+        print(json.dumps(res, indent=1))
         return
 
     # teacher (optional)
@@ -272,6 +297,8 @@ def main():
 
     model.load_state_dict(torch.load(os.path.join(out_dir, 'best.pt'), map_location=device))
     test = evaluate(model, loaders['test'], device, num_classes, amp_dtype)
+    if args.robustness or cfg.get('robustness', {}).get('enabled', False):
+        test['robustness'] = robustness(model, loaders['test'], device, num_classes, amp_dtype, cfg)
     # deployable model: hypercomplex kernels folded into dense layers (same outputs, faster)
     torch.save(reparameterize_hypercomplex(copy.deepcopy(model).cpu()).state_dict(), os.path.join(out_dir, 'deploy.pt'))
     result = {'name': cfg.get('name'), **stats, 'best_val_acc': best, 'test': test}

@@ -8,6 +8,13 @@ val, the rest to train. ``build_manifest`` follows exactly that rule (same seed 
 split), so results can be compared with the published numbers. It writes a CSV manifest,
 which is then the single source of truth.
 
+Dataset facts (U-FFIA paper, Sec. V): 27,000 two-second clips of *Oplegnathus punctatus*, from one
+recirculating tank, with 6,750 clips per class. Audio is from a hydrophone at 256 kHz, which
+U-FFIA downsamples to 64 kHz. Video is 25 fps (50 frames per clip). The paper reports a
+21,000 / 2,800 / 2,800 split; the released code's rule above gives 21,400 / 2,800 / 2,800
+(6,750 x 4 - 5,600). The 400-clip difference is the paper's own inconsistency; val and test
+are identical either way.
+
 Audio comes from a sibling ``.wav`` (looked up under ``audio_root`` with the same relative
 path or stem) or, failing that, from the mp4's own audio track.
 """

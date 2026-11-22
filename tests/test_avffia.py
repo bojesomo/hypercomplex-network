@@ -101,3 +101,52 @@ def test_hf_backbones_random_init():
                    video={'type': 'videomae', 'pretrained': False, 'layers': [1, 2], 'grid': 2, 'freeze': True},
                    dim=48, fusion_stages=[0, 1])
     _check(m, WAV(), VID(s=224, t=16))
+
+
+def test_simpf_and_panns():
+    from avffia.backbones import build_backbone
+    from avffia.frontends import LogMel
+    m = LogMel(n_mels=128, hop=1024, simpf=0.5).eval()
+    assert m(torch.randn(2, 128000)).shape == (2, 1, 63, 128)
+    b = build_backbone({'type': 'panns', 'model_name': 'cnn10'})
+    assert b.stage_dims == [64, 128, 256, 512]
+    m = HyperAVNet(audio={'type': 'panns', 'model_name': 'cnn10'}, video=HYPER_V, dim=32, fusion_stages=[2, 3])
+    _check(m, WAV(), VID())
+
+
+def test_missing_modality_mask_is_consistent():
+    m = HyperAVNet(audio=HYPER_A, video=HYPER_V, dim=32, fusion_stages=[1, 2, 3]).eval()
+    wav, vid = WAV(), VID()
+    m.missing = 'audio'
+    with torch.no_grad():
+        a = m(wav, vid)['logits']
+        b = m(torch.randn_like(wav), vid)['logits']  # audio content must not matter
+    assert torch.allclose(a, b, atol=1e-5)
+
+
+def test_uffia_kd_style_and_corruptions():
+    from avffia.corruptions import add_noise_snr, build_corruptions
+    s = HyperAVNet(audio=HYPER_A, video=HYPER_V, dim=32)
+    wav, vid = WAV(), VID()
+    with torch.no_grad():
+        t = s(wav, vid)
+    kd = DistillLoss(32, 32, 4, T=2.5, alpha=1.0, beta=0, gamma=0, style='uffia')
+    assert torch.isfinite(sum(kd(s(wav, vid), t).values()))
+    w, n = torch.randn(3, 1000), torch.randn(3, 1000)
+    out = add_noise_snr(w, n, 10.0)
+    snr = 10 * torch.log10(w.pow(2).mean(-1) / (out - w).pow(2).mean(-1))
+    assert torch.allclose(snr, torch.full_like(snr, 10.0), atol=1e-3)
+    c = build_corruptions(64000)
+    b = {'waveform': wav, 'video': vid}
+    for fn in c.values():
+        o = fn(b, 0)
+        assert o['waveform'].shape == wav.shape and o['video'].shape == vid.shape
+
+
+def test_configs_build_offline():
+    from train import load_config
+    from avffia.model import build_model
+    for path, sets in [('configs/teacher_panns_s3d.yaml', ['model.audio.checkpoint=null', 'model.video.pretrained=false']),
+                       ('configs/uffia_like_baseline.yaml', ['model.audio.checkpoint=null', 'model.video.pretrained=false']),
+                       ('configs/student_hyper_kd.yaml', [])]:
+        build_model(load_config(path, sets)['model'])

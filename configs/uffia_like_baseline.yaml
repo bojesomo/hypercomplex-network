@@ -1,15 +1,12 @@
-# A reference point close to the U-FFIA AV baseline (MobileNetV2 audio + S3D video + MBT fusion),
-# here with real-valued layers (n_divs: 1). Train it with the same split and pipeline for a fair comparison.
-_base_: base.yaml
-name: uffia_like_mbt_real
-data: {size: 256, crop: 224, num_frames: 16}
-train: {epochs: 20, batch_size: 16, lr: 3.0e-4, backbone_lr_mult: 1.0}
+# Real-valued reference: the best pretrained unimodal models from the U-FFIA benchmark
+# (PANNs CNN10 + S3D) with a plain late concat fusion (n_divs: 1). It is trained through this
+# exact pipeline and split, so the gain from hypercomplex layers and HCF fusion can be measured
+# like-for-like. The published U-FFIA AV numbers (cross-attention 0.917, U-FFIA+KD 0.907) come
+# from their ViT-based fusion models, which are not re-implemented here.
+_base_: teacher_panns_s3d.yaml
+name: uffia_like_late_concat_real
 model:
-  num_classes: 4
-  dim: 256
   n_divs: 1
-  fusion: mbt
+  fusion: concat
   fusion_stages: [3]
   num_bottleneck: 4
-  audio: {type: timm_audio, model_name: mobilenetv2_100, out_indices: [1, 2, 3, 4]}
-  video: {type: tv_video, model_name: s3d}

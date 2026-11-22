@@ -1,4 +1,6 @@
-# High-accuracy teacher: AudioSet AST + Kinetics VideoMAE-B, last blocks fine-tuned,
+# Alternative transformer teacher: AudioSet AST + Kinetics VideoMAE-B, last blocks fine-tuned.
+# NOTE: in the U-FFIA benchmark, AST (0.736) and ViViT (0.743) under-performed on AV-FFIA, so
+# configs/teacher_panns_s3d.yaml is the recommended teacher. Kept as an ablation.
 # with a hypercomplex side-fusion network attached at layers 3/6/9/12 (all stages).
 _base_: base.yaml
 name: teacher_ast_videomae
