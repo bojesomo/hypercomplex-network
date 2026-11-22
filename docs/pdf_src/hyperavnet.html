@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HyperAVNet Architecture</title>
+<style>
+  @page { size: A4; margin: 18mm 17mm 20mm 17mm; }
+  :root {
+    --ink: #1b1f24; --muted: #5b6470; --rule: #d5d9df; --soft: #f4f6f8;
+    --audio: #0f766e; --audio-bg: #e6f4f2;
+    --video: #b45309; --video-bg: #fdf1e3;
+    --fuse: #4338ca; --fuse-bg: #ecebfb;
+    --hyper: #9d174d; --hyper-bg: #fbe9f1;
+    --head: #334155; --head-bg: #eef1f5;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: #fff; color: var(--ink); }
+  body { font-family: 'Bitstream Charter', 'Liberation Serif', serif; font-size: 10.4pt; line-height: 1.45; margin: 0; }
+  h1, h2, h3, h4, .sans, table, figcaption, .callout, .kicker { font-family: 'Inter', 'Liberation Sans', sans-serif; }
+  h1 { font-size: 22pt; line-height: 1.15; margin: 0 0 6pt; letter-spacing: -0.01em; }
+  h2 { font-size: 13.5pt; margin: 18pt 0 6pt; padding-bottom: 3pt; border-bottom: 1.2pt solid var(--ink); break-after: avoid; }
+  h3 { font-size: 11pt; margin: 12pt 0 4pt; break-after: avoid; }
+  h4 { font-size: 10pt; margin: 9pt 0 3pt; break-after: avoid; color: var(--muted); }
+  p { margin: 0 0 6pt; text-align: justify; hyphens: auto; }
+  ul, ol { margin: 0 0 6pt 0; padding-left: 16pt; }
+  li { margin-bottom: 2pt; }
+  code, .mono { font-family: 'JetBrains Mono', 'DejaVu Sans Mono', monospace; font-size: 8.6pt; }
+  code { background: var(--soft); padding: 0 2pt; border-radius: 2pt; }
+  pre { font-family: 'JetBrains Mono', monospace; font-size: 8.2pt; background: var(--soft); border: 0.6pt solid var(--rule);
+        padding: 6pt 8pt; border-radius: 3pt; white-space: pre-wrap; margin: 4pt 0 8pt; break-inside: avoid; }
+  .kicker { font-size: 8.5pt; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fuse); font-weight: 600; margin-bottom: 6pt; }
+  .subtitle { font-family: 'Inter', sans-serif; font-size: 11pt; color: var(--muted); margin-bottom: 12pt; }
+  .meta { font-family: 'Inter', sans-serif; font-size: 8.5pt; color: var(--muted); border-top: 0.6pt solid var(--rule); border-bottom: 0.6pt solid var(--rule); padding: 5pt 0; margin-bottom: 12pt; display: flex; gap: 18pt; flex-wrap: wrap; }
+  .abstract { background: var(--soft); border-left: 3pt solid var(--fuse); padding: 8pt 11pt; margin: 4pt 0 10pt; }
+  .abstract p:last-child { margin-bottom: 0; }
+  figure { margin: 8pt 0 12pt; break-inside: avoid; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { font-size: 8.4pt; color: var(--muted); line-height: 1.4; margin-top: 4pt; }
+  figcaption b { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; font-size: 8.3pt; margin: 4pt 0 10pt; break-inside: avoid; }
+  th, td { padding: 3pt 5pt; text-align: left; vertical-align: top; border-bottom: 0.5pt solid var(--rule); }
+  th { border-bottom: 1pt solid var(--ink); font-weight: 600; }
+  thead th { background: #fff; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.hl td { background: var(--fuse-bg); font-weight: 600; }
+  .tcap { break-after: avoid; font-family: 'Inter', sans-serif; font-size: 8.4pt; color: var(--muted); margin: 8pt 0 2pt; }
+  .tcap b { color: var(--ink); }
+  .eq { font-family: 'Bitstream Charter', serif; font-size: 10.6pt; margin: 6pt 0 8pt; padding: 5pt 10pt; background: #fbfbfc; border: 0.5pt solid var(--rule); border-radius: 3pt; break-inside: avoid; display: flex; justify-content: space-between; align-items: center; gap: 10pt; }
+  .eq .no { font-family: 'Inter', sans-serif; font-size: 8.5pt; color: var(--muted); }
+  .eq i, p i { font-style: italic; }
+  .callout { font-size: 8.8pt; line-height: 1.45; border: 0.8pt solid var(--rule); border-radius: 4pt; padding: 7pt 10pt; margin: 6pt 0 10pt; break-inside: avoid; }
+  .callout.warn { border-color: #e7b46a; background: #fff8ec; }
+  .callout.note { border-color: #b8b4f0; background: #f6f5ff; }
+  .callout.ok { border-color: #9fd3c9; background: #f0faf8; }
+  .callout b.t { display: block; margin-bottom: 2pt; }
+  .two { break-inside: avoid; display: grid; grid-template-columns: 1fr 1fr; gap: 12pt; }
+  .pill { display: inline-block; font-family: 'Inter', sans-serif; font-size: 7.6pt; font-weight: 600; padding: 0.5pt 5pt; border-radius: 6pt; }
+  .pa { background: var(--audio-bg); color: var(--audio); }
+  .pv { background: var(--video-bg); color: var(--video); }
+  .pf { background: var(--fuse-bg); color: var(--fuse); }
+  .ph { background: var(--hyper-bg); color: var(--hyper); }
+  .pagebreak { break-before: page; }
+  .toc { font-family: 'Inter', sans-serif; font-size: 9pt; columns: 2; column-gap: 20pt; margin: 4pt 0 6pt; }
+  .toc div { break-inside: avoid; padding: 1pt 0; }
+  .toc span { color: var(--muted); display: inline-block; width: 18pt; }
+  .check li { list-style: none; margin-left: -12pt; }
+  .check li::before { content: '\2610\00a0\00a0'; font-family: 'DejaVu Sans', sans-serif; }
+  svg text { font-family: 'Inter', 'Liberation Sans', sans-serif; }
+</style>
+</head>
+<body>
+
+<!-- ====================================================================== TITLE -->
+<div class="kicker">Technical design report · fish feeding intensity assessment</div>
+<h1>HyperAVNet: Parameter-Efficient Hypercomplex Audio-Visual Fusion for Fish Feeding Intensity Assessment</h1>
+<div class="subtitle">Model architecture, training recipe, ablation protocol and paper-writing guide for the AV-FFIA dataset</div>
+<div class="meta">
+  <span><b>Code</b> bojesomo/hypercomplex-network, branch <span class="mono">claude/av-ffia-hypercomplex-classification-x87kyc</span></span>
+  <span><b>Package</b> <span class="mono">avffia/</span> on <span class="mono">fast_hypercomplex</span></span>
+  <span><b>Status</b> implemented and unit-tested; not yet trained on AV-FFIA</span>
+</div>
+
+<div class="abstract">
+<p><b>Summary.</b> HyperAVNet is an audio-visual classifier for the four-class AV-FFIA task (none, weak, medium, strong feeding).
+Hypercomplex (PHM / Hamilton-product) layers are used wherever parameters live: point-wise convolutions, attention projections, MLPs, stage projectors and the classifier.
+Audio and video are fused by a new <b>Hypercomplex Component Fusion (HCF)</b> block. It treats the shared bottleneck state, the audio view, the video view and their interaction as the components of one quaternion (or octonion) and mixes them with a single Hamilton product.
+HCF can be attached at any depth of the two backbones. A configurable <b>deep-to-early</b> schedule, with zero-initialised cross-modal feedback, sweeps from late fusion to progressive early fusion.
+Large pretrained audio and video models (AST, VideoMAE, timm and torchvision networks) serve either as a <b>teacher</b> for multi-level distillation or as frozen <b>feature extractors</b> under a hypercomplex side network.
+The default quaternion student has <b>2.14&nbsp;M parameters</b> (3.7× fewer than the identical real-valued network, 7.88&nbsp;M) at <b>2.37&nbsp;GFLOPs</b> per 2&nbsp;s clip.</p>
+</div>
+
+<div class="callout warn"><b class="t">Read this first: what is and is not established</b>
+All parameter, FLOP, shape and latency figures in this report were measured from the implemented code.
+<b>No accuracy on AV-FFIA has been measured yet</b>: there was no GPU or dataset in the build environment. The published U-FFIA numbers could not be retrieved either, because the paper host was unreachable.
+Claims of beating the state of the art must therefore wait for the experiments in §8. Where a design choice is a hypothesis to be tested, this report says so.</div>
+
+<div class="toc">
+  <div><span>1</span>Task, data and evaluation protocol</div>
+  <div><span>2</span>Architecture overview</div>
+  <div><span>3</span>Hypercomplex layers: the parameter-sharing mechanism</div>
+  <div><span>4</span>Hypercomplex student backbones</div>
+  <div><span>5</span>Hypercomplex Component Fusion (HCF)</div>
+  <div><span>6</span>Fusion depth: the deep-to-early schedule and feedback</div>
+  <div><span>7</span>Pretrained models: teacher, extractor, distillation</div>
+  <div><span>8</span>Training recipe and ablation protocol</div>
+  <div><span>9</span>Complexity and deployment</div>
+  <div><span>10</span>Guide for writing the paper</div>
+  <div><span>A</span>Reproduction commands and code map</div>
+  <div><span>B</span>References to cite</div>
+</div>
+
+<!-- ====================================================================== 1 -->
+<h2>1&nbsp;&nbsp;Task, data and evaluation protocol</h2>
+<p>AV-FFIA (Cui et al., U-FFIA) has about 27,000 paired audio-video clips of aquaculture feeding, each labelled with one of four feeding intensities.
+To keep results directly comparable with the U-FFIA baselines, the data pipeline reproduces the reference code's conventions exactly:</p>
+<table>
+  <thead><tr><th style="width:26%">Item</th><th>Setting used here (source)</th></tr></thead>
+  <tbody>
+  <tr><td>Classes and label ids</td><td><span class="mono">none=0, strong=1, medium=2, weak=3</span> (U-FFIA dataset code; note the order is not ordinal)</td></tr>
+  <tr><td>Split</td><td>Per class, shuffle with <span class="mono">np.random.RandomState(25)</span>; first 700 to test, next 700 to val, the rest to train (2,800 test and 2,800 val clips). Reproduced by <span class="mono">build_manifest</span>.</td></tr>
+  <tr><td>Audio</td><td>2&nbsp;s, resampled to 64&nbsp;kHz (U-FFIA). Log-mel with 64 bins, window 2048, hop 512 (U-FFIA: hop 1024), SpecAugment.</td></tr>
+  <tr><td>Video</td><td>16 uniformly sampled frames, short side 128 and crop 112 (student); 256 / 224 for the teacher. Random crop, flip and photometric jitter in training.</td></tr>
+  <tr><td>Selection and metrics</td><td>Best val accuracy selects the checkpoint (EMA weights); test is reported once. Accuracy (the U-FFIA headline), macro-F1, per-class F1, confusion matrix, audio-only and video-only accuracy from the auxiliary heads, parameters and FLOPs.</td></tr>
+  </tbody>
+</table>
+
+<!-- ====================================================================== 2 -->
+<h2>2&nbsp;&nbsp;Architecture overview</h2>
+<p>Figure&nbsp;1 shows the full model. Each backbone returns a list of <i>stage tokens</i> from shallow to deep.
+A small set of shared <b>bottleneck tokens</b> <i>Z</i> (8&nbsp;×&nbsp;192) carries the fused state through the fusion blocks.
+At every fusion stage <i>s</i>, hypercomplex projectors map the audio tokens <i>a<sub>s</sub></i> and video tokens <i>v<sub>s</sub></i> into the fusion width <i>D</i>. An HCF block then updates <i>Z</i>, and a zero-initialised hypercomplex gate feeds the result back into both streams.
+The classifier reads the pooled bottleneck together with the pooled last-stage audio and video tokens. Two auxiliary unimodal heads supervise each branch on its own.</p>
+
+<figure>
+<svg viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+    <marker id="arF" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4338ca"/></marker>
+    <marker id="arH" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9d174d"/></marker>
+  </defs>
+  <!-- lane labels -->
+  <text x="8" y="22" font-size="13" font-weight="700" fill="#0f766e">AUDIO STREAM</text>
+  <text x="8" y="282" font-size="13" font-weight="700" fill="#4338ca">FUSION STREAM</text>
+  <text x="8" y="545" font-size="13" font-weight="700" fill="#b45309">VIDEO STREAM</text>
+
+  <!-- audio input + stem -->
+  <rect x="8" y="40" width="112" height="70" rx="8" fill="#fff" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="64" y="66" font-size="12" font-weight="600" text-anchor="middle">Waveform</text>
+  <text x="64" y="82" font-size="10.5" text-anchor="middle" fill="#334155">2 s @ 64 kHz</text>
+  <text x="64" y="97" font-size="10.5" text-anchor="middle" fill="#334155">(B, 128000)</text>
+  <rect x="140" y="40" width="108" height="70" rx="8" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="194" y="64" font-size="11.5" font-weight="600" text-anchor="middle">Log-mel + stem</text>
+  <text x="194" y="80" font-size="10" text-anchor="middle" fill="#334155">SpecAug, BN</text>
+  <text x="194" y="95" font-size="10" text-anchor="middle" fill="#334155">Conv 3×3/2 → 32</text>
+  <line x1="120" y1="75" x2="138" y2="75" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <!-- audio stages -->
+  <g font-size="10">
+    <rect x="270" y="40" width="130" height="70" rx="8" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/>
+    <text x="335" y="60" font-size="12" font-weight="700" text-anchor="middle" fill="#0f766e">A0 · 48 ch</text>
+    <text x="335" y="76" text-anchor="middle" fill="#334155">2 × Hyper-IR, /2</text>
+    <text x="335" y="92" text-anchor="middle" fill="#334155">tokens 63 × 48</text>
+    <rect x="430" y="40" width="130" height="70" rx="8" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/>
+    <text x="495" y="60" font-size="12" font-weight="700" text-anchor="middle" fill="#0f766e">A1 · 96 ch</text>
+    <text x="495" y="76" text-anchor="middle" fill="#334155">2 × Hyper-IR, /2</text>
+    <text x="495" y="92" text-anchor="middle" fill="#334155">tokens 32 × 96</text>
+    <rect x="590" y="40" width="130" height="70" rx="8" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/>
+    <text x="655" y="60" font-size="12" font-weight="700" text-anchor="middle" fill="#0f766e">A2 · 160 ch</text>
+    <text x="655" y="76" text-anchor="middle" fill="#334155">3 × Hyper-IR, /2</text>
+    <text x="655" y="92" text-anchor="middle" fill="#334155">tokens 16 × 160</text>
+    <rect x="750" y="40" width="130" height="70" rx="8" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/>
+    <text x="815" y="60" font-size="12" font-weight="700" text-anchor="middle" fill="#0f766e">A3 · 256 ch</text>
+    <text x="815" y="76" text-anchor="middle" fill="#334155">2 × Hyper-IR</text>
+    <text x="815" y="92" text-anchor="middle" fill="#334155">tokens 16 × 256</text>
+  </g>
+  <line x1="248" y1="75" x2="268" y2="75" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="400" y1="75" x2="428" y2="75" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="560" y1="75" x2="588" y2="75" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="720" y1="75" x2="748" y2="75" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <!-- feedback gate markers on audio arrows -->
+  <g>
+    <circle cx="574" cy="75" r="8" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.4"/><text x="574" y="79" font-size="11" text-anchor="middle" fill="#9d174d" font-weight="700">×</text>
+    <circle cx="734" cy="75" r="8" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.4"/><text x="734" y="79" font-size="11" text-anchor="middle" fill="#9d174d" font-weight="700">×</text>
+    <circle cx="414" cy="75" r="8" fill="#fff" stroke="#9d174d" stroke-width="1.2" stroke-dasharray="2 2"/><text x="414" y="79" font-size="11" text-anchor="middle" fill="#9d174d">×</text>
+  </g>
+
+  <!-- video input + stem -->
+  <rect x="8" y="450" width="112" height="70" rx="8" fill="#fff" stroke="#b45309" stroke-width="1.5"/>
+  <text x="64" y="476" font-size="12" font-weight="600" text-anchor="middle">Video</text>
+  <text x="64" y="492" font-size="10.5" text-anchor="middle" fill="#334155">16 frames, 112²</text>
+  <text x="64" y="507" font-size="10.5" text-anchor="middle" fill="#334155">(B, 3, 16, 112, 112)</text>
+  <rect x="140" y="450" width="108" height="70" rx="8" fill="#fdf1e3" stroke="#b45309" stroke-width="1.5"/>
+  <text x="194" y="474" font-size="11.5" font-weight="600" text-anchor="middle">Normalise + stem</text>
+  <text x="194" y="490" font-size="10" text-anchor="middle" fill="#334155">Conv3d 3³</text>
+  <text x="194" y="505" font-size="10" text-anchor="middle" fill="#334155">stride (1,2,2) → 32</text>
+  <line x1="120" y1="485" x2="138" y2="485" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+  <g font-size="10">
+    <rect x="270" y="450" width="130" height="70" rx="8" fill="#fdf1e3" stroke="#b45309" stroke-width="1.5"/>
+    <text x="335" y="470" font-size="12" font-weight="700" text-anchor="middle" fill="#b45309">V0 · 48 ch</text>
+    <text x="335" y="486" text-anchor="middle" fill="#334155">1 × Hyper-IR3D</text>
+    <text x="335" y="502" text-anchor="middle" fill="#334155">16×28² → 64 tok</text>
+    <rect x="430" y="450" width="130" height="70" rx="8" fill="#fdf1e3" stroke="#b45309" stroke-width="1.5"/>
+    <text x="495" y="470" font-size="12" font-weight="700" text-anchor="middle" fill="#b45309">V1 · 96 ch</text>
+    <text x="495" y="486" text-anchor="middle" fill="#334155">2 × Hyper-IR3D</text>
+    <text x="495" y="502" text-anchor="middle" fill="#334155">8×14² → 32 tok</text>
+    <rect x="590" y="450" width="130" height="70" rx="8" fill="#fdf1e3" stroke="#b45309" stroke-width="1.5"/>
+    <text x="655" y="470" font-size="12" font-weight="700" text-anchor="middle" fill="#b45309">V2 · 160 ch</text>
+    <text x="655" y="486" text-anchor="middle" fill="#334155">3 × Hyper-IR3D</text>
+    <text x="655" y="502" text-anchor="middle" fill="#334155">4×7² → 16 tok</text>
+    <rect x="750" y="450" width="130" height="70" rx="8" fill="#fdf1e3" stroke="#b45309" stroke-width="1.5"/>
+    <text x="815" y="470" font-size="12" font-weight="700" text-anchor="middle" fill="#b45309">V3 · 256 ch</text>
+    <text x="815" y="486" text-anchor="middle" fill="#334155">2 × Hyper-IR3D</text>
+    <text x="815" y="502" text-anchor="middle" fill="#334155">4×4² → 16 tok</text>
+  </g>
+  <line x1="248" y1="485" x2="268" y2="485" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="400" y1="485" x2="428" y2="485" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="560" y1="485" x2="588" y2="485" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="720" y1="485" x2="748" y2="485" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+  <g>
+    <circle cx="574" cy="485" r="8" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.4"/><text x="574" y="489" font-size="11" text-anchor="middle" fill="#9d174d" font-weight="700">×</text>
+    <circle cx="734" cy="485" r="8" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.4"/><text x="734" y="489" font-size="11" text-anchor="middle" fill="#9d174d" font-weight="700">×</text>
+    <circle cx="414" cy="485" r="8" fill="#fff" stroke="#9d174d" stroke-width="1.2" stroke-dasharray="2 2"/><text x="414" y="489" font-size="11" text-anchor="middle" fill="#9d174d">×</text>
+  </g>
+
+  <!-- fusion stream -->
+  <rect x="140" y="245" width="108" height="66" rx="8" fill="#fff" stroke="#4338ca" stroke-width="1.5"/>
+  <text x="194" y="270" font-size="11.5" font-weight="600" text-anchor="middle">Bottleneck Z</text>
+  <text x="194" y="286" font-size="10" text-anchor="middle" fill="#334155">8 learned tokens</text>
+  <text x="194" y="300" font-size="10" text-anchor="middle" fill="#334155">D = 192</text>
+  <!-- HCF@0 optional -->
+  <rect x="285" y="245" width="100" height="66" rx="8" fill="#fff" stroke="#4338ca" stroke-width="1.3" stroke-dasharray="4 3"/>
+  <text x="335" y="272" font-size="11.5" font-weight="600" text-anchor="middle" fill="#4338ca">HCF @ 0</text>
+  <text x="335" y="290" font-size="9.5" text-anchor="middle" fill="#64748b">optional</text>
+  <rect x="445" y="245" width="100" height="66" rx="8" fill="#ecebfb" stroke="#4338ca" stroke-width="1.6"/>
+  <text x="495" y="272" font-size="12" font-weight="700" text-anchor="middle" fill="#4338ca">HCF @ 1</text>
+  <text x="495" y="290" font-size="9.5" text-anchor="middle" fill="#334155">152 k params</text>
+  <rect x="605" y="245" width="100" height="66" rx="8" fill="#ecebfb" stroke="#4338ca" stroke-width="1.6"/>
+  <text x="655" y="272" font-size="12" font-weight="700" text-anchor="middle" fill="#4338ca">HCF @ 2</text>
+  <text x="655" y="290" font-size="9.5" text-anchor="middle" fill="#334155">152 k params</text>
+  <rect x="765" y="245" width="100" height="66" rx="8" fill="#ecebfb" stroke="#4338ca" stroke-width="1.6"/>
+  <text x="815" y="272" font-size="12" font-weight="700" text-anchor="middle" fill="#4338ca">HCF @ 3</text>
+  <text x="815" y="290" font-size="9.5" text-anchor="middle" fill="#334155">152 k params</text>
+  <line x1="248" y1="278" x2="283" y2="278" stroke="#4338ca" stroke-width="1.6" marker-end="url(#arF)"/>
+  <line x1="385" y1="278" x2="443" y2="278" stroke="#4338ca" stroke-width="1.6" marker-end="url(#arF)"/>
+  <line x1="545" y1="278" x2="603" y2="278" stroke="#4338ca" stroke-width="1.6" marker-end="url(#arF)"/>
+  <line x1="705" y1="278" x2="763" y2="278" stroke="#4338ca" stroke-width="1.6" marker-end="url(#arF)"/>
+
+  <!-- projections: audio down, video up (stages 1..3 solid; 0 dashed) -->
+  <g stroke="#0f766e" stroke-width="1.4" fill="none">
+    <path d="M335,110 L335,243" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+    <path d="M480,110 L480,243" marker-end="url(#ar)"/>
+    <path d="M640,110 L640,243" marker-end="url(#ar)"/>
+    <path d="M800,110 L800,243" marker-end="url(#ar)"/>
+  </g>
+  <g stroke="#b45309" stroke-width="1.4" fill="none">
+    <path d="M335,450 L335,313" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+    <path d="M480,450 L480,313" marker-end="url(#ar)"/>
+    <path d="M640,450 L640,313" marker-end="url(#ar)"/>
+    <path d="M800,450 L800,313" marker-end="url(#ar)"/>
+  </g>
+  <!-- projector labels -->
+  <g font-size="9.5" fill="#334155">
+    <rect x="452" y="168" width="58" height="18" rx="4" fill="#fbe9f1" stroke="#9d174d" stroke-width="0.8"/><text x="481" y="181" text-anchor="middle" fill="#9d174d" font-weight="600">P<tspan font-size="7" dy="2">a,1</tspan></text>
+    <rect x="612" y="168" width="58" height="18" rx="4" fill="#fbe9f1" stroke="#9d174d" stroke-width="0.8"/><text x="641" y="181" text-anchor="middle" fill="#9d174d" font-weight="600">P<tspan font-size="7" dy="2">a,2</tspan></text>
+    <rect x="772" y="168" width="58" height="18" rx="4" fill="#fbe9f1" stroke="#9d174d" stroke-width="0.8"/><text x="801" y="181" text-anchor="middle" fill="#9d174d" font-weight="600">P<tspan font-size="7" dy="2">a,3</tspan></text>
+    <rect x="452" y="372" width="58" height="18" rx="4" fill="#fbe9f1" stroke="#9d174d" stroke-width="0.8"/><text x="481" y="385" text-anchor="middle" fill="#9d174d" font-weight="600">P<tspan font-size="7" dy="2">v,1</tspan></text>
+    <rect x="612" y="372" width="58" height="18" rx="4" fill="#fbe9f1" stroke="#9d174d" stroke-width="0.8"/><text x="641" y="385" text-anchor="middle" fill="#9d174d" font-weight="600">P<tspan font-size="7" dy="2">v,2</tspan></text>
+    <rect x="772" y="372" width="58" height="18" rx="4" fill="#fbe9f1" stroke="#9d174d" stroke-width="0.8"/><text x="801" y="385" text-anchor="middle" fill="#9d174d" font-weight="600">P<tspan font-size="7" dy="2">v,3</tspan></text>
+  </g>
+  <!-- feedback (gate) dashed, from HCF to gate circles -->
+  <g stroke="#9d174d" stroke-width="1.3" fill="none" stroke-dasharray="5 3">
+    <path d="M520,245 C540,200 560,140 572,85" marker-end="url(#arH)"/>
+    <path d="M680,245 C700,200 720,140 732,85" marker-end="url(#arH)"/>
+    <path d="M520,311 C540,360 560,420 572,475" marker-end="url(#arH)"/>
+    <path d="M680,311 C700,360 720,420 732,475" marker-end="url(#arH)"/>
+  </g>
+
+  <!-- head -->
+  <rect x="900" y="200" width="94" height="156" rx="8" fill="#eef1f5" stroke="#334155" stroke-width="1.5"/>
+  <text x="947" y="222" font-size="12" font-weight="700" text-anchor="middle">Head</text>
+  <text x="947" y="242" font-size="9.5" text-anchor="middle" fill="#334155">[ mean Z,</text>
+  <text x="947" y="256" font-size="9.5" text-anchor="middle" fill="#334155">mean a₃, mean v₃ ]</text>
+  <text x="947" y="276" font-size="9.5" text-anchor="middle" fill="#9d174d">HyperLinear</text>
+  <text x="947" y="290" font-size="9.5" text-anchor="middle" fill="#334155">GELU · Drop</text>
+  <text x="947" y="304" font-size="9.5" text-anchor="middle" fill="#334155">Linear → 4</text>
+  <text x="947" y="330" font-size="10" font-weight="700" text-anchor="middle" fill="#4338ca">fused logits</text>
+  <line x1="865" y1="278" x2="898" y2="278" stroke="#4338ca" stroke-width="1.6" marker-end="url(#arF)"/>
+  <!-- aux heads -->
+  <rect x="900" y="40" width="94" height="70" rx="8" fill="#fff" stroke="#0f766e" stroke-width="1.3"/>
+  <text x="947" y="64" font-size="11" font-weight="600" text-anchor="middle" fill="#0f766e">Audio aux</text>
+  <text x="947" y="80" font-size="9.5" text-anchor="middle" fill="#334155">head (P<tspan font-size="7" dy="2">a,3</tspan><tspan dy="-2">, mean)</tspan></text>
+  <text x="947" y="96" font-size="9.5" text-anchor="middle" fill="#334155">audio-only logits</text>
+  <rect x="900" y="450" width="94" height="70" rx="8" fill="#fff" stroke="#b45309" stroke-width="1.3"/>
+  <text x="947" y="474" font-size="11" font-weight="600" text-anchor="middle" fill="#b45309">Video aux</text>
+  <text x="947" y="490" font-size="9.5" text-anchor="middle" fill="#334155">head (P<tspan font-size="7" dy="2">v,3</tspan><tspan dy="-2">, mean)</tspan></text>
+  <text x="947" y="506" font-size="9.5" text-anchor="middle" fill="#334155">video-only logits</text>
+  <line x1="880" y1="75" x2="898" y2="75" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+  <line x1="880" y1="485" x2="898" y2="485" stroke="#475569" stroke-width="1.4" marker-end="url(#ar)"/>
+
+  <!-- legend -->
+  <g font-size="9.5" fill="#334155">
+    <rect x="270" y="128" width="12" height="12" rx="2" fill="#fbe9f1" stroke="#9d174d"/><text x="288" y="138">hypercomplex projector (C<tspan font-size="7" dy="2">s</tspan><tspan dy="-2"> → D, 1/n params)</tspan></text>
+    <line x1="270" y1="157" x2="290" y2="157" stroke="#334155" stroke-dasharray="4 3"/><text x="296" y="160">optional stage (enabled by the fusion_stages setting)</text>
+    <line x1="270" y1="176" x2="290" y2="176" stroke="#9d174d" stroke-width="1.3" stroke-dasharray="5 3"/><text x="296" y="179">feedback gate into both streams (×)</text>
+  </g>
+</svg>
+<figcaption><b>Figure 1. HyperAVNet, default configuration</b> (<span class="mono">configs/student_hyper.yaml</span>: quaternion, <span class="mono">fusion_stages=[1,2,3]</span>, feedback on).
+Token shapes are measured for one 2&nbsp;s clip and 16&nbsp;×&nbsp;112² frames. Audio tokens are frequency-pooled frames (mean + max); video tokens are <i>T<sub>s</sub></i>&nbsp;×&nbsp;2&nbsp;×&nbsp;2 pooled cells.
+Hyper-IR = hypercomplex inverted residual (Fig.&nbsp;3). ×&nbsp;= channel gate <i>h</i>·(1&nbsp;+&nbsp;tanh(<i>W</i>&nbsp;mean&nbsp;<i>Z</i>)) with <i>W</i> initialised to zero.
+Stage&nbsp;3 has no feedback, because nothing follows it.</figcaption>
+</figure>
+
+<!-- ====================================================================== 3 -->
+<h2>3&nbsp;&nbsp;Hypercomplex layers: the parameter-sharing mechanism</h2>
+<p>A hypercomplex layer with <i>n</i> components splits its input and output features into <i>n</i> equal parts and stores only <i>n</i> weight blocks <i>W</i><sub>0</sub>,&nbsp;…,&nbsp;<i>W</i><sub><i>n</i>−1</sub>, each of size (<i>d</i><sub>out</sub>/<i>n</i>)&nbsp;×&nbsp;(<i>d</i><sub>in</sub>/<i>n</i>).
+The full kernel is assembled from these blocks with the signed arrangement of the algebra's multiplication table (complex, quaternion, octonion or sedenion). In <span class="mono">fast_hypercomplex</span> this is <span class="mono">fast_hypercomplex(weights, n, get_comp_mat(n))</span>.
+Every output component is therefore a signed combination of every input component, through shared weights:</p>
+<div class="eq"><span><i>y</i> = <i>K</i>(<i>W</i><sub>0</sub>,…,<i>W</i><sub><i>n</i>−1</sub>) <i>x</i> + <i>b</i>,&nbsp;&nbsp;&nbsp; #params = <i>d</i><sub>in</sub><i>d</i><sub>out</sub> / <i>n</i> + <i>d</i><sub>out</sub>&nbsp;&nbsp;&nbsp; (vs. <i>d</i><sub>in</sub><i>d</i><sub>out</sub> + <i>d</i><sub>out</sub> for a real layer)</span><span class="no">(1)</span></div>
+
+<figure>
+<svg viewBox="0 0 1000 250" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="22" font-size="13" font-weight="700" fill="#334155">(a) Real dense kernel: 16 independent blocks</text>
+  <g transform="translate(60,40)">
+    <g font-size="11" text-anchor="middle" fill="#fff" font-weight="600">
+      <rect x="0" y="0" width="42" height="42" fill="#94a3b8"/><rect x="44" y="0" width="42" height="42" fill="#64748b"/><rect x="88" y="0" width="42" height="42" fill="#475569"/><rect x="132" y="0" width="42" height="42" fill="#7c8a9c"/>
+      <rect x="0" y="44" width="42" height="42" fill="#6b7a8f"/><rect x="44" y="44" width="42" height="42" fill="#9aa7b8"/><rect x="88" y="44" width="42" height="42" fill="#566479"/><rect x="132" y="44" width="42" height="42" fill="#8593a6"/>
+      <rect x="0" y="88" width="42" height="42" fill="#5c6b80"/><rect x="44" y="88" width="42" height="42" fill="#7d8ba0"/><rect x="88" y="88" width="42" height="42" fill="#a3afbf"/><rect x="132" y="88" width="42" height="42" fill="#4f5d72"/>
+      <rect x="0" y="132" width="42" height="42" fill="#8896a8"/><rect x="44" y="132" width="42" height="42" fill="#55637a"/><rect x="88" y="132" width="42" height="42" fill="#7a889c"/><rect x="132" y="132" width="42" height="42" fill="#9eabbb"/>
+    </g>
+    <text x="87" y="200" font-size="11" text-anchor="middle" fill="#334155">d<tspan font-size="8" dy="2">in</tspan><tspan dy="-2"> · d</tspan><tspan font-size="8" dy="2">out</tspan><tspan dy="-2"> parameters</tspan></text>
+  </g>
+  <text x="330" y="22" font-size="13" font-weight="700" fill="#9d174d">(b) Quaternion kernel (n = 4): 4 shared blocks, signed</text>
+  <g transform="translate(370,40)" font-size="12" text-anchor="middle" font-weight="700">
+    <!-- row 0: W0 W1 W2 W3 -->
+    <rect x="0" y="0" width="42" height="42" fill="#0f766e"/><text x="21" y="26" fill="#fff">W₀</text>
+    <rect x="44" y="0" width="42" height="42" fill="#b45309"/><text x="65" y="26" fill="#fff">W₁</text>
+    <rect x="88" y="0" width="42" height="42" fill="#4338ca"/><text x="109" y="26" fill="#fff">W₂</text>
+    <rect x="132" y="0" width="42" height="42" fill="#9d174d"/><text x="153" y="26" fill="#fff">W₃</text>
+    <!-- row 1: -W1 W0 W3 -W2 -->
+    <rect x="0" y="44" width="42" height="42" fill="#b45309" opacity="0.55"/><text x="21" y="70" fill="#1b1f24">−W₁</text>
+    <rect x="44" y="44" width="42" height="42" fill="#0f766e"/><text x="65" y="70" fill="#fff">W₀</text>
+    <rect x="88" y="44" width="42" height="42" fill="#9d174d"/><text x="109" y="70" fill="#fff">W₃</text>
+    <rect x="132" y="44" width="42" height="42" fill="#4338ca" opacity="0.55"/><text x="153" y="70" fill="#1b1f24">−W₂</text>
+    <!-- row 2: -W2 -W3 W0 W1 -->
+    <rect x="0" y="88" width="42" height="42" fill="#4338ca" opacity="0.55"/><text x="21" y="114" fill="#1b1f24">−W₂</text>
+    <rect x="44" y="88" width="42" height="42" fill="#9d174d" opacity="0.55"/><text x="65" y="114" fill="#1b1f24">−W₃</text>
+    <rect x="88" y="88" width="42" height="42" fill="#0f766e"/><text x="109" y="114" fill="#fff">W₀</text>
+    <rect x="132" y="88" width="42" height="42" fill="#b45309"/><text x="153" y="114" fill="#fff">W₁</text>
+    <!-- row 3: -W3 W2 -W1 W0 -->
+    <rect x="0" y="132" width="42" height="42" fill="#9d174d" opacity="0.55"/><text x="21" y="158" fill="#1b1f24">−W₃</text>
+    <rect x="44" y="132" width="42" height="42" fill="#4338ca"/><text x="65" y="158" fill="#fff">W₂</text>
+    <rect x="88" y="132" width="42" height="42" fill="#b45309" opacity="0.55"/><text x="109" y="158" fill="#1b1f24">−W₁</text>
+    <rect x="132" y="132" width="42" height="42" fill="#0f766e"/><text x="153" y="158" fill="#fff">W₀</text>
+    <text x="87" y="200" font-size="11" font-weight="400" fill="#334155">d<tspan font-size="8" dy="2">in</tspan><tspan dy="-2"> · d</tspan><tspan font-size="8" dy="2">out</tspan><tspan dy="-2"> / 4 parameters</tspan></text>
+  </g>
+  <g transform="translate(640,40)" font-size="11.5" fill="#334155">
+    <text x="0" y="12" font-weight="700" fill="#1b1f24" font-size="13">Where hypercomplex layers are used</text>
+    <text x="0" y="36">• 1×1 expand / project convs in every Hyper-IR block</text>
+    <text x="0" y="56">• squeeze-excite MLPs</text>
+    <text x="0" y="76">• attention q, kv and output projections</text>
+    <text x="0" y="96">• transformer MLPs and stage projectors P<tspan font-size="8" dy="2">a,s</tspan><tspan dy="-2">, P</tspan><tspan font-size="8" dy="2">v,s</tspan></text>
+    <text x="0" y="116">• HCF component mixer (n = algebra, Fig. 4)</text>
+    <text x="0" y="136">• feedback gates, head, distillation projectors</text>
+    <text x="0" y="162" font-weight="700" fill="#1b1f24">Kept real (cheap or 1-channel)</text>
+    <text x="0" y="182">• depth-wise convs, 1-channel stems, LayerNorm, 4-way output</text>
+  </g>
+</svg>
+<figcaption><b>Figure 2. Hamilton-product weight sharing.</b> (b) is the exact block and sign layout that <span class="mono">fast_hypercomplex</span> produces for <i>n</i>&nbsp;=&nbsp;4 (rows = output components, columns = input components).
+The same principle with 8 or 16 blocks gives the octonion and sedenion layers. <span class="mono">hlinear</span> / <span class="mono">hconv</span> fall back to a real layer when dimensions are not divisible by <i>n</i>, and <i>n</i>&nbsp;=&nbsp;1 is the real-valued ablation.</figcaption>
+</figure>
+
+<div class="callout note"><b class="t">Point to make in the paper</b>
+The weight sharing is a structural prior: each feature group is processed by every weight block, with fixed sign patterns.
+This keeps cross-group interactions while removing 1&nbsp;−&nbsp;1/<i>n</i> of the parameters, which acts as a regulariser on a dataset of AV-FFIA's size.
+Compute is <i>not</i> reduced, because the assembled kernel is dense (see §9). State this explicitly: reviewers will check.</div>
+
+<!-- ====================================================================== 4 -->
+<h2>4&nbsp;&nbsp;Hypercomplex student backbones</h2>
+<p>Both student backbones are four-stage stacks of <b>hypercomplex inverted-residual (Hyper-IR)</b> blocks (Fig.&nbsp;3), with the MobileNetV2/EfficientNet layout: 2D on log-mel for audio, 3D for video.
+The two point-wise convolutions hold almost all of a block's parameters, so they are the hypercomplex ones. The depth-wise convolution stays real.
+Both backbones are <i>stage-wise</i>: the AV model runs them one stage at a time, which is what makes the cross-modal feedback of §6 possible.</p>
+
+<figure>
+<svg viewBox="0 0 1000 150" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker></defs>
+  <g font-size="11" text-anchor="middle">
+    <text x="30" y="66" font-size="13" font-weight="700">x</text>
+    <text x="30" y="84" font-size="9.5" fill="#64748b">C ch</text>
+    <rect x="70" y="40" width="150" height="58" rx="7" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.4"/>
+    <text x="145" y="62" font-weight="700" fill="#9d174d">HyperConv 1×1</text><text x="145" y="78" fill="#334155">C → 4C, BN, SiLU</text><text x="145" y="92" fill="#64748b" font-size="9.5">(params / n)</text>
+    <rect x="250" y="40" width="150" height="58" rx="7" fill="#eef1f5" stroke="#334155" stroke-width="1.3"/>
+    <text x="325" y="62" font-weight="700">Depth-wise conv</text><text x="325" y="78" fill="#334155">3×3 (audio) / 3×3×3 (video)</text><text x="325" y="92" fill="#64748b" font-size="9.5">stride s, BN, SiLU</text>
+    <rect x="430" y="40" width="150" height="58" rx="7" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.4"/>
+    <text x="505" y="62" font-weight="700" fill="#9d174d">Squeeze-excite</text><text x="505" y="78" fill="#334155">HyperLinear ×2</text><text x="505" y="92" fill="#64748b" font-size="9.5">sigmoid channel gate</text>
+    <rect x="610" y="40" width="150" height="58" rx="7" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.4"/>
+    <text x="685" y="62" font-weight="700" fill="#9d174d">HyperConv 1×1</text><text x="685" y="78" fill="#334155">4C → C′, BN</text><text x="685" y="92" fill="#64748b" font-size="9.5">(params / n)</text>
+    <circle cx="805" cy="69" r="14" fill="#fff" stroke="#334155" stroke-width="1.4"/><text x="805" y="74" font-size="15">+</text>
+    <text x="830" y="58" font-size="9" fill="#64748b" text-anchor="start">DropPath</text>
+    <text x="905" y="66" font-size="13" font-weight="700">y</text><text x="905" y="84" font-size="9.5" fill="#64748b">C′ ch</text>
+  </g>
+  <g stroke="#475569" stroke-width="1.4" fill="none">
+    <line x1="45" y1="69" x2="68" y2="69" marker-end="url(#ar2)"/>
+    <line x1="220" y1="69" x2="248" y2="69" marker-end="url(#ar2)"/>
+    <line x1="400" y1="69" x2="428" y2="69" marker-end="url(#ar2)"/>
+    <line x1="580" y1="69" x2="608" y2="69" marker-end="url(#ar2)"/>
+    <line x1="760" y1="69" x2="789" y2="69" marker-end="url(#ar2)"/>
+    <line x1="819" y1="69" x2="888" y2="69" marker-end="url(#ar2)"/>
+    <path d="M55,69 L55,125 L805,125 L805,85" stroke-dasharray="5 3" marker-end="url(#ar2)"/>
+  </g>
+  <text x="430" y="141" font-size="10" fill="#64748b" text-anchor="middle">identity shortcut when C = C′ and stride = 1</text>
+</svg>
+<figcaption><b>Figure 3. Hypercomplex inverted-residual block (Hyper-IR).</b> Expansion ratio 4. The same block is used in 2D (audio) and 3D (video); only the depth-wise kernel and stride change.</figcaption>
+</figure>
+
+<p class="tcap"><b>Table 1.</b> Student backbone stages (measured, default config). Audio input: log-mel (1,&nbsp;251,&nbsp;64), stem output (32,&nbsp;126,&nbsp;32). Video input (3,&nbsp;16,&nbsp;112,&nbsp;112), stem output (32,&nbsp;16,&nbsp;56,&nbsp;56).</p>
+<table>
+  <thead><tr><th>Stage</th><th class="num">Channels</th><th>Audio blocks / stride</th><th>Audio map (C,T,F)</th><th class="num">Audio tokens</th><th>Video blocks / stride (T,H,W)</th><th>Video map (C,T,H,W)</th><th class="num">Video tokens</th></tr></thead>
+  <tbody>
+    <tr><td>0</td><td class="num">48</td><td>2 / 2</td><td>48×63×16</td><td class="num">63</td><td>1 / (1,2,2)</td><td>48×16×28×28</td><td class="num">64</td></tr>
+    <tr><td>1</td><td class="num">96</td><td>2 / 2</td><td>96×32×8</td><td class="num">32</td><td>2 / (2,2,2)</td><td>96×8×14×14</td><td class="num">32</td></tr>
+    <tr><td>2</td><td class="num">160</td><td>3 / 2</td><td>160×16×4</td><td class="num">16</td><td>3 / (2,2,2)</td><td>160×4×7×7</td><td class="num">16</td></tr>
+    <tr><td>3</td><td class="num">256</td><td>2 / 1</td><td>256×16×4</td><td class="num">16</td><td>2 / (1,2,2)</td><td>256×4×4×4</td><td class="num">16</td></tr>
+  </tbody>
+</table>
+<p><b>Tokenisation.</b> Audio stage maps are pooled over frequency, as mean + max (the max keeps short splash and feeding transients), which gives one token per time frame.
+Video maps are adaptively pooled to a 2&nbsp;×&nbsp;2 spatial grid per time step, which keeps coarse location (where the feeding activity is) while keeping fusion cheap.</p>
+
+<!-- ====================================================================== 5 -->
+<h2>5&nbsp;&nbsp;Hypercomplex Component Fusion (HCF)</h2>
+<p>HCF is the main methodological contribution. Its inputs are the bottleneck <i>Z</i>&nbsp;∈&nbsp;ℝ<sup><i>N<sub>b</sub></i>×<i>D</i></sup> and the projected stage tokens <i>A</i>&nbsp;=&nbsp;<i>P</i><sub>a,s</sub>(<i>a<sub>s</sub></i>) and <i>V</i>&nbsp;=&nbsp;<i>P</i><sub>v,s</sub>(<i>v<sub>s</sub></i>).
+HCF first reads each modality with its own hypercomplex cross-attention. It then builds a hypercomplex number whose components are the modality-specific views and their interactions:</p>
+<div class="eq"><span><i>z</i><sub>a</sub> = <i>Z</i> + XAttn<sub>H</sub>(LN <i>Z</i>, LN <i>A</i>),&nbsp;&nbsp;&nbsp; <i>z</i><sub>v</sub> = <i>Z</i> + XAttn<sub>H</sub>(LN <i>Z</i>, LN <i>V</i>)</span><span class="no">(2)</span></div>
+<div class="eq"><span><b>q</b> = <i>Z</i>·<b>e</b><sub>0</sub> + <i>z</i><sub>a</sub>·<b>e</b><sub>1</sub> + <i>z</i><sub>v</sub>·<b>e</b><sub>2</sub> + (<i>ẑ</i><sub>a</sub> ⊙ <i>ẑ</i><sub>v</sub>)·<b>e</b><sub>3</sub>&nbsp;&nbsp;&nbsp;&nbsp;(quaternion; <i>ẑ</i> = LN <i>z</i>)</span><span class="no">(3)</span></div>
+<div class="eq"><span>octonion adds&nbsp; (<i>z</i><sub>a</sub> − <i>z</i><sub>v</sub>)·<b>e</b><sub>4</sub> + (<i>Ẑ</i>⊙<i>ẑ</i><sub>a</sub>)·<b>e</b><sub>5</sub> + (<i>Ẑ</i>⊙<i>ẑ</i><sub>v</sub>)·<b>e</b><sub>6</sub> + (<i>Ẑ</i>⊙<i>ẑ</i><sub>a</sub>⊙<i>ẑ</i><sub>v</sub>)·<b>e</b><sub>7</sub>;&nbsp;&nbsp; complex uses (<i>z</i><sub>a</sub>, <i>z</i><sub>v</sub>)</span><span class="no">(4)</span></div>
+<div class="eq"><span><i>Z</i> ← <i>Z</i> + γ<sub>1</sub> ⊙ HyperLinear<sub><i>m</i></sub>(<b>q</b>),&nbsp;&nbsp;&nbsp; <i>Z</i> ← <i>Z</i> + γ<sub>2</sub> ⊙ HyperMLP(LN <i>Z</i>),&nbsp;&nbsp; <i>m</i> ∈ {2, 4, 8}</span><span class="no">(5)</span></div>
+
+<figure>
+<svg viewBox="0 0 1000 300" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker></defs>
+  <g font-size="11" text-anchor="middle">
+    <!-- inputs -->
+    <rect x="10" y="20" width="96" height="44" rx="7" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.4"/><text x="58" y="40" font-weight="700" fill="#0f766e">A</text><text x="58" y="55" font-size="9.5" fill="#334155">audio tokens</text>
+    <rect x="10" y="128" width="96" height="44" rx="7" fill="#ecebfb" stroke="#4338ca" stroke-width="1.4"/><text x="58" y="148" font-weight="700" fill="#4338ca">Z</text><text x="58" y="163" font-size="9.5" fill="#334155">bottleneck</text>
+    <rect x="10" y="236" width="96" height="44" rx="7" fill="#fdf1e3" stroke="#b45309" stroke-width="1.4"/><text x="58" y="256" font-weight="700" fill="#b45309">V</text><text x="58" y="271" font-size="9.5" fill="#334155">video tokens</text>
+    <!-- cross-attn -->
+    <rect x="150" y="50" width="150" height="56" rx="7" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.4"/><text x="225" y="73" font-weight="700" fill="#9d174d">Hyper X-Attn</text><text x="225" y="90" font-size="9.5" fill="#334155">q = LN Z, kv = LN A</text>
+    <rect x="150" y="194" width="150" height="56" rx="7" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.4"/><text x="225" y="217" font-weight="700" fill="#9d174d">Hyper X-Attn</text><text x="225" y="234" font-size="9.5" fill="#334155">q = LN Z, kv = LN V</text>
+    <!-- za zv -->
+    <text x="330" y="74" font-weight="700" font-size="12">z<tspan font-size="8" dy="3">a</tspan></text>
+    <text x="330" y="226" font-weight="700" font-size="12">z<tspan font-size="8" dy="3">v</tspan></text>
+    <!-- components -->
+    <g transform="translate(370,40)">
+      <text x="88" y="-8" font-size="11" font-weight="700" fill="#1b1f24">components of q (quaternion)</text>
+      <rect x="0" y="0" width="176" height="40" rx="5" fill="#ecebfb" stroke="#4338ca"/><text x="20" y="25" font-weight="700" fill="#4338ca">e₀</text><text x="100" y="25">Z (shared state)</text>
+      <rect x="0" y="46" width="176" height="40" rx="5" fill="#e6f4f2" stroke="#0f766e"/><text x="20" y="71" font-weight="700" fill="#0f766e">e₁</text><text x="100" y="71">z<tspan font-size="8" dy="3">a</tspan><tspan dy="-3"> (audio view)</tspan></text>
+      <rect x="0" y="92" width="176" height="40" rx="5" fill="#fdf1e3" stroke="#b45309"/><text x="20" y="117" font-weight="700" fill="#b45309">e₂</text><text x="100" y="117">z<tspan font-size="8" dy="3">v</tspan><tspan dy="-3"> (video view)</tspan></text>
+      <rect x="0" y="138" width="176" height="40" rx="5" fill="#fbe9f1" stroke="#9d174d"/><text x="20" y="163" font-weight="700" fill="#9d174d">e₃</text><text x="100" y="163">ẑ<tspan font-size="8" dy="3">a</tspan><tspan dy="-3"> ⊙ ẑ</tspan><tspan font-size="8" dy="3">v</tspan><tspan dy="-3"> (interaction)</tspan></text>
+      <text x="88" y="200" font-size="9.5" fill="#64748b">octonion: + 4 more interaction terms (eq. 4)</text>
+    </g>
+    <!-- mixer -->
+    <rect x="590" y="100" width="150" height="80" rx="8" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.8"/>
+    <text x="665" y="125" font-weight="700" fill="#9d174d" font-size="12">Hamilton mixer</text>
+    <text x="665" y="142" fill="#334155">HyperLinear<tspan font-size="8" dy="3">m</tspan></text>
+    <text x="665" y="157" fill="#334155" font-size="9.5" dy="0">m·D → D,  D² params</text>
+    <text x="665" y="171" fill="#64748b" font-size="9.5">(dense would be m·D²)</text>
+    <!-- residual + mlp -->
+    <circle cx="785" cy="140" r="14" fill="#fff" stroke="#334155" stroke-width="1.4"/><text x="785" y="145" font-size="15">+</text>
+    <text x="785" y="118" font-size="9" fill="#64748b">γ₁ (LayerScale)</text>
+    <rect x="820" y="112" width="100" height="56" rx="7" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.4"/><text x="870" y="135" font-weight="700" fill="#9d174d">LN → HyperMLP</text><text x="870" y="152" font-size="9.5" fill="#334155">+ γ₂ residual</text>
+    <text x="965" y="145" font-weight="700" font-size="13" fill="#4338ca">Z′</text>
+  </g>
+  <g stroke="#475569" stroke-width="1.4" fill="none">
+    <path d="M106,42 C130,42 130,70 148,70" marker-end="url(#ar3)"/>
+    <path d="M106,150 C130,150 130,90 148,90" marker-end="url(#ar3)"/>
+    <path d="M106,150 C130,150 130,212 148,212" marker-end="url(#ar3)"/>
+    <path d="M106,258 C130,258 130,232 148,232" marker-end="url(#ar3)"/>
+    <line x1="300" y1="78" x2="318" y2="78"/>
+    <line x1="300" y1="222" x2="318" y2="222"/>
+    <path d="M345,78 L360,108 L368,108" marker-end="url(#ar3)"/>
+    <path d="M345,222 L360,152 L368,152" marker-end="url(#ar3)"/>
+    <path d="M106,150 C200,150 250,60 368,60" stroke="#4338ca" stroke-dasharray="4 3" marker-end="url(#ar3)"/>
+    <path d="M345,222 L355,198 L368,198" marker-end="url(#ar3)"/>
+    <path d="M345,78 L355,190" stroke-dasharray="2 2"/>
+    <line x1="546" y1="140" x2="588" y2="140" marker-end="url(#ar3)"/>
+    <line x1="740" y1="140" x2="769" y2="140" marker-end="url(#ar3)"/>
+    <line x1="799" y1="140" x2="818" y2="140" marker-end="url(#ar3)"/>
+    <line x1="920" y1="140" x2="950" y2="140" marker-end="url(#ar3)"/>
+    <path d="M106,165 L124,165 L124,292 L785,292 L785,156" stroke="#4338ca" stroke-dasharray="5 3" marker-end="url(#ar3)"/>
+  </g>
+  <text x="420" y="288" font-size="9.5" fill="#4338ca" text-anchor="middle">residual: Z</text>
+</svg>
+<figcaption><b>Figure 4. Hypercomplex Component Fusion block.</b> The modality views and their interaction are concatenated as the <i>m</i> components of <b>q</b> and mixed by a single hypercomplex linear layer whose algebra matches the component count (<span class="mono">fusion_algebra</span>).
+The Hamilton product makes every output a signed mix of every component, so cross-modal terms enter at 1/<i>m</i> of the dense mixer cost. The mixer has <i>D</i>² parameters for any <i>m</i>: octonion HCF adds four interaction components at no parameter cost. LayerScale starts at 10<sup>−2</sup>.</figcaption>
+</figure>
+
+<h3>5.1&nbsp;&nbsp;Baselines provided for the fusion-operator ablation</h3>
+<ul>
+  <li><b>MBT</b> (attention bottleneck; Nagrani et al. 2021, and the U-FFIA fusion): [<i>A</i>; <i>Z</i>] and [<i>V</i>; <i>Z</i>] each go through a hypercomplex transformer block, and the two bottleneck updates are averaged. It has about the same parameters as HCF (2.138&nbsp;M vs 2.137&nbsp;M in total), so the comparison is <i>iso-parameter</i>.</li>
+  <li><b>Concat</b>: the pooled [<i>Z</i>, mean&nbsp;<i>A</i>, mean&nbsp;<i>V</i>] through a gated hypercomplex linear layer (1.851&nbsp;M total).</li>
+</ul>
+<div class="callout note"><b class="t">Hypotheses to test (H1–H3)</b>
+<b>H1</b> HCF ≥ MBT at equal parameters, because the multiplicative <i>z</i><sub>a</sub>⊙<i>z</i><sub>v</sub> component explicitly models agreement between the splashing sound and the visible surface agitation that marks strong feeding.
+<b>H2</b> Octonion HCF ≥ quaternion HCF, at the same parameters, from the extra interaction terms.
+<b>H3</b> HCF is more robust than concatenation under modality dropout and corruption (test with one modality blanked at evaluation time).</div>
+
+<!-- ====================================================================== 6 -->
+<h2>6&nbsp;&nbsp;Fusion depth: the deep-to-early schedule and feedback</h2>
+<p>The setting <span class="mono">fusion_stages</span> picks the stages where an HCF block is attached. The prescribed ablation moves from deep to early.
+Fusion first happens only at the last stage (late fusion), then progressively earlier stages are added, until fusion runs from the first stage on.
+Single-stage variants show at which depth fusion is most useful.
+With stage-wise backbones, each fusion stage <i>s</i>&nbsp;&lt;&nbsp;<i>S</i>−1 also sends a <b>feedback gate</b> into both streams before stage <i>s</i>+1:</p>
+<div class="eq"><span><i>h</i><sub>a</sub> ← <i>h</i><sub>a</sub> ⊙ (1 + tanh(<i>G</i><sub>a,s</sub> mean <i>Z</i>)),&nbsp;&nbsp;&nbsp; <i>h</i><sub>v</sub> ← <i>h</i><sub>v</sub> ⊙ (1 + tanh(<i>G</i><sub>v,s</sub> mean <i>Z</i>)),&nbsp;&nbsp;&nbsp; <i>G</i> = HyperLinear, zero-init</span><span class="no">(6)</span></div>
+<p>Because <i>G</i> starts at zero, training starts exactly at the feedback-free (side-fusion) model. A unit test checks this equivalence.
+The network then learns how much audio context should modulate the video features and vice versa. This is true early fusion rather than fusion of independently computed features.</p>
+
+<figure>
+<svg viewBox="0 0 1000 250" xmlns="http://www.w3.org/2000/svg">
+  <g font-size="13">
+    <text x="10" y="18" font-weight="700" font-size="13">Setting</text>
+    <text x="200" y="18" font-weight="700" font-size="13">Stages 0 · 1 · 2 · 3 (deep →)</text>
+    <text x="560" y="18" font-weight="700" font-size="13">Params (M)</text>
+    <text x="690" y="18" font-weight="700" font-size="13">GFLOPs</text>
+    <text x="800" y="18" font-weight="700" font-size="13">Role</text>
+    <line x1="10" y1="26" x2="990" y2="26" stroke="#1b1f24"/>
+  </g>
+  <!-- rows -->
+  <g font-size="13">
+    <!-- row helper: y base -->
+    <g transform="translate(0,34)">
+      <text x="10" y="20" class="mono" font-family="JetBrains Mono" font-size="12">[3]</text>
+      <g transform="translate(200,4)"><rect x="0" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="80" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="160" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="240" width="70" height="22" rx="4" fill="#4338ca"/><text x="275" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF</text></g>
+      <text x="600" y="20" text-anchor="end">1.780</text><text x="730" y="20" text-anchor="end">2.333</text><text x="800" y="20" fill="#334155">late fusion (reference)</text>
+    </g>
+    <g transform="translate(0,66)">
+      <text x="10" y="20" font-family="JetBrains Mono" font-size="12">[2,3]</text>
+      <g transform="translate(200,4)"><rect x="0" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="80" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="160" width="70" height="22" rx="4" fill="#4338ca"/><text x="195" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="240" width="70" height="22" rx="4" fill="#4338ca"/><text x="275" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF</text></g>
+      <text x="600" y="20" text-anchor="end">1.965</text><text x="730" y="20" text-anchor="end">2.347</text><text x="800" y="20" fill="#334155">mid + late</text>
+    </g>
+    <g transform="translate(0,98)">
+      <text x="10" y="20" font-family="JetBrains Mono" font-size="12">[1,2,3]</text>
+      <g transform="translate(200,4)"><rect x="0" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="80" width="70" height="22" rx="4" fill="#4338ca"/><text x="115" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="160" width="70" height="22" rx="4" fill="#4338ca"/><text x="195" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="240" width="70" height="22" rx="4" fill="#4338ca"/><text x="275" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF</text></g>
+      <text x="600" y="20" text-anchor="end" font-weight="700">2.137</text><text x="730" y="20" text-anchor="end" font-weight="700">2.366</text><text x="800" y="20" fill="#4338ca" font-weight="700">default (progressive)</text>
+    </g>
+    <g transform="translate(0,130)">
+      <text x="10" y="20" font-family="JetBrains Mono" font-size="12">[0,1,2,3]</text>
+      <g transform="translate(200,4)"><rect x="0" width="70" height="22" rx="4" fill="#4338ca"/><text x="35" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="80" width="70" height="22" rx="4" fill="#4338ca"/><text x="115" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="160" width="70" height="22" rx="4" fill="#4338ca"/><text x="195" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF↺</text><rect x="240" width="70" height="22" rx="4" fill="#4338ca"/><text x="275" y="15" fill="#fff" text-anchor="middle" font-weight="700">HCF</text></g>
+      <text x="600" y="20" text-anchor="end">2.300</text><text x="730" y="20" text-anchor="end">2.395</text><text x="800" y="20" fill="#334155">earliest (full progressive)</text>
+    </g>
+    <line x1="10" y1="170" x2="990" y2="170" stroke="#cbd5e1"/>
+    <g transform="translate(0,176)">
+      <text x="10" y="20" font-family="JetBrains Mono" font-size="12">[k], k = 0,1,2</text>
+      <g transform="translate(200,4)"><rect x="0" width="70" height="22" rx="4" fill="#fff" stroke="#4338ca" stroke-dasharray="3 2"/><rect x="80" width="70" height="22" rx="4" fill="#fff" stroke="#4338ca" stroke-dasharray="3 2"/><rect x="160" width="70" height="22" rx="4" fill="#fff" stroke="#4338ca" stroke-dasharray="3 2"/><text x="115" y="15" fill="#4338ca" text-anchor="middle" font-size="10">one of these</text><rect x="240" width="70" height="22" rx="4" fill="#f1f5f9" stroke="#cbd5e1"/></g>
+      <text x="800" y="20" fill="#334155">where does fusion help most?</text>
+    </g>
+    <g transform="translate(0,208)">
+      <text x="10" y="20" font-family="JetBrains Mono" font-size="12">[1,2,3], no ↺</text>
+      <text x="200" y="20" fill="#334155">same fusion stages, feedback disabled (inject=false)</text>
+      <text x="800" y="20" fill="#334155">value of feedback</text>
+    </g>
+  </g>
+</svg>
+<figcaption><b>Figure 5. Deep-to-early fusion schedule</b> (measured params and GFLOPs, quaternion student). ↺ = the stage sends a feedback gate into both streams. Each added HCF stage costs about 0.17&nbsp;M parameters and under 0.03&nbsp;GFLOPs, so the depth ablation is almost free in compute.</figcaption>
+</figure>
+
+<div class="callout note"><b class="t">Hypotheses to test (H4–H5)</b>
+<b>H4</b> Accuracy rises from <span class="mono">[3]</span> to <span class="mono">[1,2,3]</span>. Mid-level cues (surface texture, the onset of a splash) are complementary across modalities before they are abstracted away.
+Fusion at stage&nbsp;0 may be too low-level to help; report it either way, because an inverted-U curve is itself a finding.
+<b>H5</b> Feedback (↺) beats the same stages without feedback, especially for the confusable <i>weak</i> and <i>medium</i> classes.</div>
+
+<!-- ====================================================================== 7 -->
+<h2>7&nbsp;&nbsp;Pretrained models: teacher, extractor, distillation</h2>
+<p>All backbones share one interface: a list of stage tokens, shallow to deep. Any pretrained model can therefore be paired with the hypercomplex fusion stream.
+There are two modes. In <b>distillation</b>, a large pretrained AV teacher supervises the efficient student. In <b>feature extraction</b>, frozen (or partly unfrozen) pretrained backbones feed a hypercomplex <i>side network</i>, ladder-style, optionally from cached features.</p>
+<p class="tcap"><b>Table 2.</b> Backbones in <span class="mono">avffia/backbones.py</span>.</p>
+<table>
+  <thead><tr><th>Key</th><th>Model</th><th>Stages exposed</th><th>Intended role</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">hyper_audio</td><td>Hyper-IR CNN on log-mel (0.75&nbsp;M at <i>n</i>=4)</td><td>4 stages, time tokens</td><td><span class="pill pa">student</span></td></tr>
+    <tr><td class="mono">hyper_video</td><td>Hyper-IR 3D CNN (0.82&nbsp;M at <i>n</i>=4)</td><td>4 stages, T×2×2 tokens</td><td><span class="pill pv">student</span></td></tr>
+    <tr><td class="mono">ast</td><td>Audio Spectrogram Transformer, AudioSet. Position embeddings interpolated to 2&nbsp;s (19 time patches instead of 101), about 5× cheaper than padding to 10&nbsp;s</td><td>layers 3/6/9/12</td><td><span class="pill pf">teacher</span> extractor</td></tr>
+    <tr><td class="mono">videomae</td><td>VideoMAE-B, Kinetics; tokens pooled to 7×7 per tubelet step</td><td>layers 3/6/9/12</td><td><span class="pill pf">teacher</span> extractor</td></tr>
+    <tr><td class="mono">timm_audio</td><td>Any timm CNN on 1-channel mel (EfficientNet, MobileNetV2/V4, ConvNeXt); per-clip standardisation when frozen</td><td>feature_info stages</td><td>extractor</td></tr>
+    <tr><td class="mono">timm_frames</td><td>Any timm 2D net per frame, plus a <b>hypercomplex temporal adapter</b> (depth-wise temporal conv and a HyperConv 1×1×1, zero-initialised)</td><td>feature_info stages</td><td>extractor</td></tr>
+    <tr><td class="mono">tv_video</td><td>torchvision Kinetics R(2+1)D-18, R3D-18, MC3-18, S3D (the U-FFIA video backbone)</td><td>4 named blocks</td><td>extractor, baseline</td></tr>
+  </tbody>
+</table>
+
+<figure>
+<svg viewBox="0 0 1000 285" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker></defs>
+  <g font-size="11" text-anchor="middle">
+    <text x="210" y="18" font-size="12.5" font-weight="700">Stage 1: teacher (frozen except the last blocks)</text>
+    <rect x="20" y="32" width="170" height="54" rx="7" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.4"/><text x="105" y="54" font-weight="700" fill="#0f766e">AST (AudioSet)</text><text x="105" y="71" font-size="9.5" fill="#334155">blocks 10–11 + LN trainable</text>
+    <rect x="20" y="100" width="170" height="54" rx="7" fill="#fdf1e3" stroke="#b45309" stroke-width="1.4"/><text x="105" y="122" font-weight="700" fill="#b45309">VideoMAE-B (K400)</text><text x="105" y="139" font-size="9.5" fill="#334155">blocks 10–11 trainable</text>
+    <rect x="230" y="55" width="170" height="76" rx="7" fill="#ecebfb" stroke="#4338ca" stroke-width="1.5"/><text x="315" y="80" font-weight="700" fill="#4338ca">HCF side network</text><text x="315" y="97" font-size="9.5" fill="#334155">layers 3/6/9/12, D = 384</text><text x="315" y="112" font-size="9.5" fill="#334155">16 bottleneck tokens</text>
+    <rect x="430" y="55" width="110" height="76" rx="7" fill="#eef1f5" stroke="#334155" stroke-width="1.3"/><text x="485" y="80" font-weight="700">Teacher</text><text x="485" y="96" font-size="9.5" fill="#334155">logits, aux logits</text><text x="485" y="110" font-size="9.5" fill="#334155">feat, feat_a, feat_v</text>
+    <!-- student -->
+    <text x="210" y="190" font-size="12.5" font-weight="700">Stage 2: HyperAVNet student (2.14 M)</text>
+    <rect x="20" y="204" width="380" height="60" rx="7" fill="#fbe9f1" stroke="#9d174d" stroke-width="1.5"/><text x="210" y="228" font-weight="700" fill="#9d174d">hyper_audio + hyper_video + HCF [1,2,3] with feedback</text><text x="210" y="246" font-size="9.5" fill="#334155">sees the same augmented clip; video downsampled 224 → 112 inside the model</text>
+    <rect x="430" y="204" width="110" height="60" rx="7" fill="#eef1f5" stroke="#334155" stroke-width="1.3"/><text x="485" y="228" font-weight="700">Student</text><text x="485" y="245" font-size="9.5" fill="#334155">same output dict</text>
+    <!-- losses -->
+    <rect x="600" y="30" width="390" height="240" rx="8" fill="#fff" stroke="#cbd5e1" stroke-width="1"/>
+    <text x="795" y="52" font-size="12.5" font-weight="700">Student objective</text>
+    <g text-anchor="start" font-size="10.5">
+      <text x="615" y="80"><tspan font-weight="700">L</tspan><tspan font-size="8" dy="3">CE</tspan><tspan dy="-3">: label-smoothed CE (0.1), fused logits</tspan></text>
+      <text x="615" y="104"><tspan font-weight="700">L</tspan><tspan font-size="8" dy="3">aux</tspan><tspan dy="-3">: 0.3 · ½(CE audio-only + CE video-only)</tspan></text>
+      <text x="615" y="128"><tspan font-weight="700">L</tspan><tspan font-size="8" dy="3">KD</tspan><tspan dy="-3">: 0.7 · T²·KL(s/T ‖ t/T), T = 2</tspan></text>
+      <text x="637" y="146" fill="#64748b">+ 0.5 · unimodal head-to-head KL</text>
+      <text x="615" y="170"><tspan font-weight="700">L</tspan><tspan font-size="8" dy="3">feat</tspan><tspan dy="-3">: 1.0 · mean(1 − cos(H(s</tspan><tspan font-size="8" dy="3">k</tspan><tspan dy="-3">), t</tspan><tspan font-size="8" dy="3">k</tspan><tspan dy="-3">))</tspan></text>
+      <text x="637" y="188" fill="#64748b">k ∈ {fused, audio, video}; H = HyperLinear</text>
+      <text x="615" y="212"><tspan font-weight="700">L</tspan><tspan font-size="8" dy="3">rel</tspan><tspan dy="-3">: 0.5 · SmoothL1 of batch cosine-similarity</tspan></text>
+      <text x="637" y="230" fill="#64748b">matrices (RKD-style; no projector needed)</text>
+      <text x="615" y="256" font-weight="700" fill="#4338ca">L = L<tspan font-size="8" dy="3">CE</tspan><tspan dy="-3"> + L</tspan><tspan font-size="8" dy="3">aux</tspan><tspan dy="-3"> + L</tspan><tspan font-size="8" dy="3">KD</tspan><tspan dy="-3"> + L</tspan><tspan font-size="8" dy="3">feat</tspan><tspan dy="-3"> + L</tspan><tspan font-size="8" dy="3">rel</tspan></tspan></text>
+    </g>
+  </g>
+  <g stroke="#475569" stroke-width="1.4" fill="none">
+    <path d="M190,59 L228,80" marker-end="url(#ar4)"/>
+    <path d="M190,127 L228,106" marker-end="url(#ar4)"/>
+    <line x1="400" y1="93" x2="428" y2="93" marker-end="url(#ar4)"/>
+    <line x1="400" y1="234" x2="428" y2="234" marker-end="url(#ar4)"/>
+    <path d="M540,93 L598,120" marker-end="url(#ar4)" stroke="#4338ca"/>
+    <path d="M540,234 L598,200" marker-end="url(#ar4)" stroke="#9d174d"/>
+  </g>
+</svg>
+<figcaption><b>Figure 6. Two-stage training with multi-level distillation.</b> The teacher is trained first (<span class="mono">configs/teacher_ast_videomae.yaml</span>), then frozen. The student (<span class="mono">configs/student_hyper_kd.yaml</span>) learns from labels, teacher logits (fused and per modality), pooled embeddings and batch relations. Loss weights are the defaults in the config.</figcaption>
+</figure>
+
+<h3>7.1&nbsp;&nbsp;Feature-extraction mode (cheapest training)</h3>
+<p><span class="mono">extract_features.py</span> runs frozen backbones once over <i>k</i> augmented views of every training clip (one view for val and test) and stores the stage tokens in fp16.
+Training then only updates the hypercomplex fusion network and heads: about 1.24&nbsp;M trainable parameters in <span class="mono">configs/frozen_timm_side.yaml</span>.
+This mode suits large sweeps (e.g. the full fusion-depth × algebra grid) and is a strong "frozen foundation features" baseline in its own right.</p>
+
+<!-- ====================================================================== 8 -->
+<h2>8&nbsp;&nbsp;Training recipe and ablation protocol</h2>
+<p class="tcap"><b>Table 3.</b> Default optimisation settings (<span class="mono">configs/base.yaml</span>; overridable with <span class="mono">--set</span>).</p>
+<table>
+  <thead><tr><th>Setting</th><th>Student</th><th>Teacher</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Optimiser</td><td colspan="2">AdamW (β = 0.9, 0.999), weight decay 0.05 (none on norms, biases or tokens)</td><td>U-FFIA used Adam at 1e-3</td></tr>
+    <tr><td>Learning rate / schedule</td><td>1e-3, cosine, 2 warm-up epochs</td><td>3e-4; pretrained weights ×0.1</td><td>per-group base learning rates</td></tr>
+    <tr><td>Epochs / batch</td><td>40 / 32</td><td>20 / 16</td><td>EMA 0.999, used for selection</td></tr>
+    <tr><td>Regularisation</td><td colspan="2">label smoothing 0.1, drop-path 0.1, modality dropout 0.1, SpecAugment, crop/flip/jitter, gain/shift</td><td>gradient clip 5.0</td></tr>
+    <tr><td>Precision</td><td colspan="2">bf16 autocast (mel and fbank front-ends forced to fp32)</td><td></td></tr>
+  </tbody>
+</table>
+
+<p class="tcap"><b>Table 4.</b> Ablation suite (<span class="mono">scripts/run_ablations.sh</span>). Report mean ± std over 3 seeds; the split stays fixed (seed 25).</p>
+<table>
+  <thead><tr><th style="width:9%">Group</th><th style="width:25%">Axis</th><th>Runs</th><th style="width:22%">Hypothesis</th></tr></thead>
+  <tbody>
+    <tr><td>A</td><td>Fusion depth (deep → early)</td><td><span class="mono">[3]</span>, <span class="mono">[2,3]</span>, <span class="mono">[1,2,3]</span>, <span class="mono">[0,1,2,3]</span>; single <span class="mono">[0]</span>, <span class="mono">[1]</span>, <span class="mono">[2]</span>; <span class="mono">[1,2,3]</span> without feedback</td><td>H4, H5</td></tr>
+    <tr><td>B</td><td>Network algebra <i>n</i></td><td>1 (real, 7.88&nbsp;M), 2 (3.94&nbsp;M), 4 (2.14&nbsp;M), 8 (1.24&nbsp;M), 16 (0.78&nbsp;M)</td><td>accuracy holds down to <i>n</i> = 4–8</td></tr>
+    <tr><td>C</td><td>Fusion operator</td><td>HCF-complex, HCF-quaternion, HCF-octonion, MBT, concat</td><td>H1, H2</td></tr>
+    <tr><td>D</td><td>Regularisers</td><td>no modality dropout; no auxiliary heads</td><td>H3, modality balance</td></tr>
+    <tr><td>E</td><td>Distillation</td><td>best A–D settings ± KD; KD loss terms one at a time (logits / feat / rel / unimodal)</td><td>KD closes the gap to the teacher</td></tr>
+    <tr><td>F</td><td>Robustness (evaluation only)</td><td>audio blanked; video blanked; additive noise / blur</td><td>H3</td></tr>
+  </tbody>
+</table>
+
+<p class="tcap"><b>Table 5.</b> Parameters by algebra <i>n</i> (measured, default student with <span class="mono">fusion_stages=[1,2,3]</span>). GFLOPs are 2.37 for every <i>n</i>.</p>
+<table>
+  <thead><tr><th><i>n</i></th><th>Algebra</th><th class="num">Total (M)</th><th class="num">Audio backbone (M)</th><th class="num">Video backbone (M)</th><th class="num">Reduction vs real</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>real</td><td class="num">7.880</td><td class="num">2.823</td><td class="num">2.858</td><td class="num">1.0×</td></tr>
+    <tr><td>2</td><td>complex</td><td class="num">3.941</td><td class="num">1.443</td><td class="num">1.497</td><td class="num">2.0×</td></tr>
+    <tr class="hl"><td>4</td><td>quaternion (default)</td><td class="num">2.137</td><td class="num">0.753</td><td class="num">0.816</td><td class="num">3.7×</td></tr>
+    <tr><td>8</td><td>octonion</td><td class="num">1.235</td><td class="num">0.408</td><td class="num">0.476</td><td class="num">6.4×</td></tr>
+    <tr><td>16</td><td>sedenion</td><td class="num">0.784</td><td class="num">0.236</td><td class="num">0.305</td><td class="num">10.1×</td></tr>
+  </tbody>
+</table>
+
+<!-- ====================================================================== 9 -->
+<h2>9&nbsp;&nbsp;Complexity and deployment</h2>
+<div class="two">
+<div>
+<p class="tcap"><b>Table 6.</b> Measured cost of the default student (CPU, batch 1, 2&nbsp;s audio + 16×112² video).</p>
+<table>
+  <thead><tr><th>Quantity</th><th class="num">Value</th></tr></thead>
+  <tbody>
+    <tr><td>Stored parameters (<i>n</i> = 4)</td><td class="num">2.14 M</td></tr>
+    <tr><td>  audio / video / fusion + heads</td><td class="num">0.75 / 0.82 / 0.57 M</td></tr>
+    <tr><td>Same network, real (<i>n</i> = 1)</td><td class="num">7.88 M</td></tr>
+    <tr><td>FLOPs per clip</td><td class="num">2.37 G</td></tr>
+    <tr><td>  audio / video backbone</td><td class="num">0.38 / 1.94 G</td></tr>
+    <tr><td>CPU latency, training form</td><td class="num">65 ms</td></tr>
+    <tr><td>CPU latency, reparameterised</td><td class="num">46 ms</td></tr>
+  </tbody>
+</table>
+</div>
+<div>
+<p><b>Reparameterisation.</b> <span class="mono">reparameterize_hypercomplex(model)</span> folds every assembled Hamilton kernel into a plain <span class="mono">nn.Linear</span> or <span class="mono">nn.Conv</span>. Its outputs are identical (unit-tested). This removes the per-forward kernel assembly, which makes inference about 30% faster on CPU.
+Training saves this form as <span class="mono">deploy.pt</span>.</p>
+<p><b>What to claim.</b> Hypercomplex layers reduce <i>stored and optimised</i> parameters (model size, memory, communication), not arithmetic: the assembled kernel is dense, so FLOPs equal the real network's.
+Compute efficiency comes from the compact backbone design instead: about 2.4&nbsp;GFLOPs per clip, with the video branch at 82% of it.
+To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mono">num_frames</span> or the input size. Do not attribute FLOP savings to the algebra.</p>
+</div>
+</div>
+
+<!-- ====================================================================== 10 -->
+<h2>10&nbsp;&nbsp;Guide for writing the paper</h2>
+<h3>10.1&nbsp;&nbsp;Working titles</h3>
+<ul>
+  <li><i>HyperAVNet: Hypercomplex Audio-Visual Fusion for Parameter-Efficient Fish Feeding Intensity Assessment</i></li>
+  <li><i>Quaternion Component Fusion of Sound and Vision for Aquaculture Feeding Assessment</i></li>
+  <li><i>Where to Fuse? Deep-to-Early Hypercomplex Audio-Visual Fusion for Fish Feeding Intensity Assessment</i></li>
+</ul>
+<h3>10.2&nbsp;&nbsp;Candidate contribution statements (keep only those the results support)</h3>
+<ol>
+  <li>A <b>fully hypercomplex audio-visual architecture</b> for FFIA, with Hamilton-product weight sharing in the backbones, attention, fusion and heads, at 3.7×–10× fewer parameters than the real-valued equivalent.</li>
+  <li><b>Hypercomplex Component Fusion</b>: modality views and their multiplicative interactions are encoded as the components of a quaternion or octonion and mixed by a single Hamilton product, with a constant parameter cost whatever the algebra.</li>
+  <li>A <b>systematic deep-to-early fusion study</b> with zero-initialised cross-modal feedback, identifying where audio-visual fusion helps FFIA.</li>
+  <li><b>Multi-level distillation</b> from large pretrained audio (AST) and video (VideoMAE) models into a 2&nbsp;M-parameter hypercomplex student, and a frozen-feature side-network variant.</li>
+  <li><b>State-of-the-art accuracy on AV-FFIA</b> at a fraction of the parameters of prior models. <i>Only if Table 7 confirms it.</i></li>
+</ol>
+<h3>10.3&nbsp;&nbsp;Suggested paper outline and where each item goes</h3>
+<table>
+  <thead><tr><th style="width:26%">Section</th><th>Content</th><th style="width:28%">From this report</th></tr></thead>
+  <tbody>
+    <tr><td>1 Introduction</td><td>FFIA in aquaculture: feed waste, welfare, cost. Audio and video are complementary (turbidity, lighting, occlusion vs noise). Efficiency for edge deployment.</td><td>contributions §10.2</td></tr>
+    <tr><td>2 Related work</td><td>FFIA (vision, audio, U-FFIA); AV fusion (early, late, MBT); hypercomplex / PHM networks; KD for AV models</td><td>Appendix B</td></tr>
+    <tr><td>3 Preliminaries</td><td>Hypercomplex algebras and Hamilton-product layers</td><td>§3, Fig. 2, eq. (1)</td></tr>
+    <tr><td>4 Method</td><td>4.1 overview; 4.2 hypercomplex backbones; 4.3 HCF; 4.4 deep-to-early fusion and feedback; 4.5 objectives and distillation</td><td>Figs. 1, 3, 4, 5, 6; eqs. (2)–(6); Table 1</td></tr>
+    <tr><td>5 Experimental set-up</td><td>AV-FFIA, split, metrics, implementation details</td><td>§1, Tables 3 and 6</td></tr>
+    <tr><td>6 Results</td><td>main comparison (Table 7); efficiency (params, FLOPs, latency) plot</td><td>Tables 5, 6 and 7</td></tr>
+    <tr><td>7 Ablations</td><td>fusion depth, algebra, operator, KD, robustness</td><td>Table 4, H1–H5</td></tr>
+    <tr><td>8 Analysis</td><td>confusion matrices (weak vs medium), per-class F1, attention maps over time, gate magnitudes per stage</td><td>confusion and per-class F1 are saved by <span class="mono">train.py</span>; attention and gate maps need forward hooks (not yet implemented)</td></tr>
+    <tr><td>9 Conclusion</td><td>limitations (FLOPs vs params, single dataset, species and site generalisation)</td><td>§9</td></tr>
+  </tbody>
+</table>
+
+<p class="tcap"><b>Table 7.</b> Main results table to fill in (all rows evaluated on the same AV-FFIA split).</p>
+<table>
+  <thead><tr><th>Model</th><th>Modality</th><th class="num">Params (M)</th><th class="num">GFLOPs</th><th class="num">Acc (%)</th><th class="num">Macro-F1</th></tr></thead>
+  <tbody>
+    <tr><td>U-FFIA paper, best audio-only</td><td>A</td><td class="num" colspan="4" style="text-align:center;color:#9a6b16">copy from the paper (not retrieved)</td></tr>
+    <tr><td>U-FFIA paper, best video-only</td><td>V</td><td class="num" colspan="4" style="text-align:center;color:#9a6b16">copy from the paper (not retrieved)</td></tr>
+    <tr><td>U-FFIA paper, AV (MBT)</td><td>AV</td><td class="num" colspan="4" style="text-align:center;color:#9a6b16">copy from the paper (not retrieved)</td></tr>
+    <tr><td>U-FFIA-like baseline, re-run here (<span class="mono">uffia_like_baseline.yaml</span>)</td><td>AV</td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td></tr>
+    <tr><td>Teacher: AST + VideoMAE + HCF</td><td>AV</td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td></tr>
+    <tr><td>Frozen timm + HCF side network</td><td>AV</td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td></tr>
+    <tr class="hl"><td>HyperAVNet-Q (KD), proposed</td><td>AV</td><td class="num">2.14</td><td class="num">2.37</td><td class="num"></td><td class="num"></td></tr>
+    <tr><td>HyperAVNet-O (KD)</td><td>AV</td><td class="num">1.24</td><td class="num">2.37</td><td class="num"></td><td class="num"></td></tr>
+    <tr><td>HyperAVNet-Q, real-valued twin (<i>n</i> = 1)</td><td>AV</td><td class="num">7.88</td><td class="num">2.37</td><td class="num"></td><td class="num"></td></tr>
+  </tbody>
+</table>
+
+<h3>10.4&nbsp;&nbsp;Checklist before submission</h3>
+<ul class="check">
+  <li>Copy the U-FFIA numbers from the paper, and confirm that its split and clip set match ours (seed 25, 700/700 per class).</li>
+  <li>Re-run the U-FFIA-like baseline through this pipeline, so the comparison does not depend on differences in preprocessing.</li>
+  <li>Use 3 seeds for every reported number; add significance tests for the closest comparisons.</li>
+  <li>Report parameters <i>and</i> FLOPs, and state plainly that hypercomplex layers do not reduce FLOPs.</li>
+  <li>Report the teacher's size and cost next to the student's, so readers see what distillation buys.</li>
+  <li>Count teacher pretraining data (AudioSet, Kinetics) as external data in the comparison.</li>
+  <li>Tune the frame count (U-FFIA hints at 20), the audio hop and the input size on val only, never on test.</li>
+  <li>Include confusion matrices: weak vs medium is the hard pair and the most informative analysis.</li>
+  <li>Release the configs and the manifest builder, so the split can be reproduced exactly.</li>
+</ul>
+
+<!-- ====================================================================== A -->
+<h2>Appendix A&nbsp;&nbsp;Reproduction commands and code map</h2>
+<pre>pip install -r requirements.txt
+python -m pytest -q tests                                    # 55 offline tests
+python train.py --build-manifest --video-root /data/AV-FFIA --audio-root /data/AV-FFIA_audio
+python train.py -c configs/teacher_ast_videomae.yaml         # stage 1: teacher
+python train.py -c configs/student_hyper_kd.yaml             # stage 2: distilled student
+python train.py -c configs/student_hyper.yaml --set model.fusion_stages=[2,3] --set name=fs23
+bash scripts/run_ablations.sh configs/student_hyper.yaml     # groups A-D
+python scripts/summarize.py runs > results.md                # Markdown results table
+python scripts/profile_model.py -c configs/student_hyper.yaml  # params / FLOPs / latency
+python extract_features.py -c configs/frozen_timm_side.yaml --out feats/timm --views 4</pre>
+<table>
+  <thead><tr><th style="width:30%">File</th><th>Contents</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">avffia/hyper.py</td><td><span class="mono">hlinear</span>, <span class="mono">hconv</span>, HyperAttention, HyperMlp, HyperBlock, HyperInvertedResidual, <span class="mono">reparameterize_hypercomplex</span></td></tr>
+    <tr><td class="mono">avffia/fusion.py</td><td>HyperComponentFusion (HCF), HyperMBTFusion, ConcatFusion</td></tr>
+    <tr><td class="mono">avffia/model.py</td><td>HyperAVNet: projectors, bottleneck, fusion schedule, feedback gates, heads, <span class="mono">forward_from_tokens</span></td></tr>
+    <tr><td class="mono">avffia/backbones.py</td><td>Students and the AST, VideoMAE, timm and torchvision wrappers (shared stage-token interface)</td></tr>
+    <tr><td class="mono">avffia/frontends.py</td><td>LogMel + SpecAugment, Kaldi fbank (AST), video normalisation</td></tr>
+    <tr><td class="mono">avffia/losses.py</td><td>AVLoss (CE + auxiliary), DistillLoss (KD + feature + relation)</td></tr>
+    <tr><td class="mono">avffia/data.py</td><td>U-FFIA-compatible manifest and split, decoding (decord or PyAV), clip cache, augmentation</td></tr>
+    <tr><td class="mono">train.py, extract_features.py</td><td>Training, evaluation and distillation; cached-feature extraction</td></tr>
+  </tbody>
+</table>
+
+<!-- ====================================================================== B -->
+<h2>Appendix B&nbsp;&nbsp;References to cite</h2>
+<p style="font-size:9pt">Check every entry's venue and year against the original before submission.</p>
+<ol style="font-size:9pt">
+  <li>A. Bojesomo, P. Liatsis, H. Al Marzouqi. Deep hypercomplex networks for spatiotemporal data processing: parameter efficiency and superior performance. <i>IEEE Signal Processing Magazine</i>, 41(3):101–112, 2024.</li>
+  <li>A. Bojesomo, P. Liatsis, H. Al Marzouqi. Marine debris segmentation using a parameter-efficient octonion-based architecture. <i>IEEE GRSL</i>, 20, 2023.</li>
+  <li>A. Bojesomo, H. Al-Marzouqi, P. Liatsis. Traffic flow prediction using deep sedenion networks. arXiv:2012.03874, 2020.</li>
+  <li>M. Cui et al. U-FFIA / AV-FFIA: multimodal fish feeding intensity assessment (dataset and unified model). github.com/FishMaster93/U-FFIA; arXiv:2309.05058.</li>
+  <li>A. Nagrani et al. Attention bottlenecks for multimodal fusion (MBT). <i>NeurIPS</i>, 2021.</li>
+  <li>Y. Gong, Y.-A. Chung, J. Glass. AST: Audio Spectrogram Transformer. <i>Interspeech</i>, 2021.</li>
+  <li>Z. Tong et al. VideoMAE: masked autoencoders are data-efficient learners for self-supervised video pre-training. <i>NeurIPS</i>, 2022.</li>
+  <li>A. Zhang et al. Beyond fully-connected layers with quaternions: parameterization of hypercomplex multiplications with 1/n parameters. <i>ICLR</i>, 2021.</li>
+  <li>E. Grassucci, A. Zhang, D. Comminiello. PHNNs: lightweight neural networks via parameterized hypercomplex convolutions. <i>IEEE TNNLS</i>, 2022.</li>
+  <li>T. Parcollet et al. Quaternion convolutional neural networks for end-to-end automatic speech recognition. <i>Interspeech</i>, 2018.</li>
+  <li>G. Hinton, O. Vinyals, J. Dean. Distilling the knowledge in a neural network. arXiv:1503.02531, 2015.</li>
+  <li>W. Park et al. Relational knowledge distillation. <i>CVPR</i>, 2019.</li>
+  <li>Q. Kong et al. PANNs: large-scale pretrained audio neural networks for audio pattern recognition. <i>IEEE/ACM TASLP</i>, 2020.</li>
+  <li>S. Xie et al. Rethinking spatiotemporal feature learning: speed-accuracy trade-offs in video classification (S3D). <i>ECCV</i>, 2018.</li>
+  <li>M. Sandler et al. MobileNetV2: inverted residuals and linear bottlenecks. <i>CVPR</i>, 2018.</li>
+  <li>D. S. Park et al. SpecAugment. <i>Interspeech</i>, 2019.</li>
+  <li>H. Touvron et al. Going deeper with image transformers (LayerScale). <i>ICCV</i>, 2021.</li>
+</ol>
+
+</body>
+</html>
