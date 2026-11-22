@@ -1,0 +1,26 @@
+# Feature-extraction mode: frozen ImageNet backbones (2D per-frame video, mel-CNN audio)
+# plus a trainable hypercomplex side-fusion network. Works with extract_features.py.
+_base_: base.yaml
+name: frozen_timm_side
+data: {size: 256, crop: 224, num_frames: 8}
+train: {epochs: 30, batch_size: 32, lr: 1.0e-3}
+model:
+  num_classes: 4
+  dim: 256
+  n_divs: 4
+  fusion: hcf
+  fusion_stages: [0, 1, 2, 3]
+  num_bottleneck: 8
+  audio:
+    type: timm_audio
+    model_name: efficientnet_b0
+    out_indices: [1, 2, 3, 4]
+    freeze: true
+    frontend: {sample_rate: 64000, n_fft: 2048, hop: 512, n_mels: 128}
+  video:
+    type: timm_frames
+    model_name: mobilenetv4_conv_medium.e500_r256_in1k
+    out_indices: [1, 2, 3, 4]
+    grid: 2
+    freeze: true
+    temporal_adapter: false   # must be false for cached features; true otherwise

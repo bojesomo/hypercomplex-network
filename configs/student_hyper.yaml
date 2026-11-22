@@ -1,0 +1,28 @@
+# Efficient fully hypercomplex AV model (quaternion, about 2.8M params), trained from scratch.
+# Progressive fusion from stage 1 onwards with cross-modal feedback (true early fusion).
+_base_: base.yaml
+name: student_hyper_q
+model:
+  num_classes: 4
+  dim: 192
+  n_divs: 4                  # 1 = real ablation, 2 complex, 4 quaternion, 8 octonion, 16 sedenion
+  fusion: hcf                # hcf | mbt | concat
+  fusion_algebra: 4          # components in Hypercomplex Component Fusion: 2 | 4 | 8
+  fusion_stages: [1, 2, 3]   # ablation axis: [3] -> [2,3] -> [1,2,3] -> [0,1,2,3]
+  inject: true               # feed fused tokens back into both streams (stage-wise backbones)
+  num_bottleneck: 8
+  num_heads: 4
+  modality_dropout: 0.1
+  drop_path: 0.1
+  audio:
+    type: hyper_audio
+    n_divs: 4
+    dims: [48, 96, 160, 256]
+    depths: [2, 2, 3, 2]
+    frontend: {sample_rate: 64000, n_fft: 2048, hop: 512, n_mels: 64}
+  video:
+    type: hyper_video
+    n_divs: 4
+    dims: [48, 96, 160, 256]
+    depths: [1, 2, 3, 2]
+    grid: 2

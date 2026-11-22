@@ -1,0 +1,28 @@
+# High-accuracy teacher: AudioSet AST + Kinetics VideoMAE-B, last blocks fine-tuned,
+# with a hypercomplex side-fusion network attached at layers 3/6/9/12 (all stages).
+_base_: base.yaml
+name: teacher_ast_videomae
+data: {size: 256, crop: 224, num_frames: 16}
+train: {epochs: 20, batch_size: 16, lr: 3.0e-4, backbone_lr_mult: 0.1}
+model:
+  num_classes: 4
+  dim: 384
+  n_divs: 4
+  fusion: hcf
+  fusion_algebra: 4
+  fusion_stages: [0, 1, 2, 3]
+  num_bottleneck: 16
+  num_heads: 6
+  audio:
+    type: ast
+    model_name: MIT/ast-finetuned-audioset-10-10-0.4593
+    layers: [3, 6, 9, 12]
+    freeze: true
+    unfreeze: [encoder.layer.10., encoder.layer.11., layernorm]
+  video:
+    type: videomae
+    model_name: MCG-NJU/videomae-base-finetuned-kinetics
+    layers: [3, 6, 9, 12]
+    grid: 7
+    freeze: true
+    unfreeze: [encoder.layer.10., encoder.layer.11.]

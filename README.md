@@ -36,3 +36,20 @@ If using this code, please cite
 }
 
 ```
+
+## AV-FFIA: hypercomplex audio-visual fish feeding intensity assessment
+
+`avffia/` contains HyperAVNet, an efficient audio-visual classifier for the
+[AV-FFIA dataset](https://github.com/FishMaster93/U-FFIA). It has hypercomplex backbones,
+attention and heads, a hypercomplex component fusion block applied at configurable depths
+(deep to early), pretrained AST, VideoMAE, timm and torchvision models as teachers or frozen
+extractors, and multi-level distillation. See [docs/AVFFIA_DESIGN.md](docs/AVFFIA_DESIGN.md).
+
+```bash
+pip install -r requirements.txt
+python -m pytest -q tests                                     # offline smoke tests
+python train.py --build-manifest --video-root /data/AV-FFIA --audio-root /data/AV-FFIA_audio
+python train.py -c configs/teacher_ast_videomae.yaml          # 1) teacher
+python train.py -c configs/student_hyper_kd.yaml              # 2) distilled 2.1M-param student
+bash scripts/run_ablations.sh configs/student_hyper.yaml      # fusion-depth / algebra / operator ablations
+```

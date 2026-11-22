@@ -1,0 +1,12 @@
+torch>=2.1
+torchvision>=0.16
+torchaudio>=2.1
+timm>=1.0
+transformers>=4.40   # AST / VideoMAE backbones
+einops
+scipy
+numpy
+pyyaml
+av                   # video/audio decoding (decord is used instead if installed)
+soundfile
+pytest

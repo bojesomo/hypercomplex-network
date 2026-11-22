@@ -1,0 +1,24 @@
+# Shared defaults. Other configs inherit from this one through `_base_`.
+seed: 25                    # U-FFIA split seed
+output_dir: runs
+data:
+  manifest: data/avffia.csv  # built with: python train.py --build-manifest ...
+  cache_dir: cache/avffia    # decoded clips are cached here after the first epoch
+  sample_rate: 64000         # U-FFIA audio set-up (2 s clips)
+  seconds: 2.0
+  num_frames: 16
+  size: 128                  # short side after resize
+  crop: 112
+  num_workers: 8
+train:
+  epochs: 40
+  batch_size: 32
+  lr: 1.0e-3
+  weight_decay: 0.05
+  backbone_lr_mult: 0.1      # for pretrained backbone weights (audio.net / video.net)
+  warmup_epochs: 2
+  label_smoothing: 0.1
+  aux_weight: 0.3            # audio-only + video-only auxiliary heads
+  clip_grad: 5.0
+  ema: 0.999
+  amp: bf16

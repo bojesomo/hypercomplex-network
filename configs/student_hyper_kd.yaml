@@ -1,0 +1,11 @@
+# The proposed efficient model: hypercomplex student distilled from the AST+VideoMAE teacher.
+# The data runs at the teacher's 224 px; the student downsamples internally to 112 px.
+_base_: student_hyper.yaml
+name: student_hyper_q_kd
+data: {size: 256, crop: 224, num_frames: 16}
+model:
+  video: {size: [112, 112]}
+distill:
+  teacher_config: configs/teacher_ast_videomae.yaml
+  teacher_ckpt: runs/teacher_ast_videomae/best.pt
+  loss: {T: 2.0, alpha: 0.7, beta: 1.0, gamma: 0.5, unimodal_weight: 0.5}

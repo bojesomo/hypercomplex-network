@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+runs/
+runs_*/
+cache/
+feats/
+data/*.csv
+.pytest_cache/

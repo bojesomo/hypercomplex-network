@@ -1,0 +1,15 @@
+# A reference point close to the U-FFIA AV baseline (MobileNetV2 audio + S3D video + MBT fusion),
+# here with real-valued layers (n_divs: 1). Train it with the same split and pipeline for a fair comparison.
+_base_: base.yaml
+name: uffia_like_mbt_real
+data: {size: 256, crop: 224, num_frames: 16}
+train: {epochs: 20, batch_size: 16, lr: 3.0e-4, backbone_lr_mult: 1.0}
+model:
+  num_classes: 4
+  dim: 256
+  n_divs: 1
+  fusion: mbt
+  fusion_stages: [3]
+  num_bottleneck: 4
+  audio: {type: timm_audio, model_name: mobilenetv2_100, out_indices: [1, 2, 3, 4]}
+  video: {type: tv_video, model_name: s3d}
