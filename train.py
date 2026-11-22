@@ -24,6 +24,7 @@ import json
 import math
 import os
 import random
+import sys
 import time
 
 import numpy as np
@@ -114,6 +115,63 @@ class EMA:
                 e.copy_(m)
 
 
+# ----------------------------------------------------------------------------- monitoring
+class Progress:
+    """In-epoch console monitoring. A tqdm bar on an interactive terminal; otherwise (nohup,
+    redirected logs, or no tqdm) a plain text line every ``log_every`` steps.
+
+    Usage: ``for b in (bar := Progress(loader, 'ep 3/40')): ...; bar.update(loss=0.53, acc=0.81)``
+    """
+
+    def __init__(self, iterable, desc: str, enabled: bool = True, log_every: int = 50, leave: bool = True):
+        self.it, self.desc, self.log_every = iterable, desc, max(1, log_every)
+        self.total = len(iterable) if hasattr(iterable, '__len__') else None
+        self.bar, self.i, self.t0 = None, 0, time.time()
+        self.enabled = enabled
+        if enabled and sys.stderr.isatty():
+            try:
+                import shutil
+                from tqdm import tqdm
+                # Some consoles (IDE run windows, emulated ptys) report a 0x0 terminal; tqdm then
+                # draws nothing (0 rows hides the bar), so fall back to a fixed size there.
+                ts = shutil.get_terminal_size((0, 0))
+                size = dict(dynamic_ncols=True) if ts.columns > 0 else dict(ncols=120)
+                if ts.lines <= 0:
+                    size['nrows'] = 40
+                self.bar = tqdm(iterable, desc=desc, total=self.total, leave=leave, mininterval=0.5,
+                                smoothing=0.1, **size)
+            except ImportError:
+                pass
+
+    def __iter__(self):
+        for x in (self.bar if self.bar is not None else self.it):
+            self.i += 1
+            yield x
+
+    def update(self, **stats):
+        if not self.enabled:
+            return
+        fmt = {k: (f'{v:.4g}' if isinstance(v, float) else v) for k, v in stats.items()}
+        if self.bar is not None:
+            self.bar.set_postfix(fmt, refresh=False)
+        elif self.i % self.log_every == 0 or self.i == self.total:
+            el = time.time() - self.t0
+            eta = el / self.i * (self.total - self.i) if self.total else 0
+            print(f'{self.desc} [{self.i}/{self.total or "?"}] ' + ' '.join(f'{k}={v}' for k, v in fmt.items()) +
+                  f' | {el:.0f}s elapsed, eta {eta:.0f}s', flush=True)
+
+    def write(self, msg: str):
+        (self.bar.write if self.bar is not None else print)(msg)
+
+    def close(self):
+        if self.bar is not None:
+            self.bar.close()
+
+
+def gpu_mem() -> str:
+    return f'{torch.cuda.max_memory_allocated() / 2**30:.1f}G' if torch.cuda.is_available() else '-'
+
+
 # ----------------------------------------------------------------------------- loops
 def to_device(batch, device):
     mv = lambda v: v.to(device, non_blocking=True) if torch.is_tensor(v) else [mv(x) for x in v] if isinstance(v, list) else v
@@ -127,20 +185,26 @@ def forward(model, b):
 
 
 @torch.no_grad()
-def evaluate(model, loader, device, num_classes, amp_dtype, corrupt=None):
+def evaluate(model, loader, device, num_classes, amp_dtype, corrupt=None, desc='eval', progress=True):
     model.eval()
     logits, la, lv, ys = [], [], [], []
-    for i, b in enumerate(loader):
+    correct = seen = 0
+    bar = Progress(loader, f'  {desc}', enabled=progress, log_every=10 ** 9, leave=False)
+    for i, b in enumerate(bar):
         b = to_device(b, device)
         if corrupt is not None:
             b = corrupt(b, i)
         with torch.autocast(device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
             out = forward(model, b)
         logits.append(out['logits'].float().cpu())
+        correct += (logits[-1].argmax(-1) == b['target'].cpu()).sum().item()
+        seen += b['target'].shape[0]
+        bar.update(acc=correct / max(1, seen))
         if 'logits_a' in out:
             la.append(out['logits_a'].float().cpu())
             lv.append(out['logits_v'].float().cpu())
         ys.append(b['target'].cpu())
+    bar.close()
     y = torch.cat(ys)
     res = classification_metrics(torch.cat(logits), y, num_classes)
     if la:
@@ -158,11 +222,11 @@ def robustness(model, loader, device, num_classes, amp_dtype, cfg):
     cached = 'a_tokens' in next(iter(loader))  # cached features: input corruptions do not apply
     for name, fn in ({} if cached else build_corruptions(cfg['data']['sample_rate'], rc.get('noise_dir'),
                                                           rc.get('seed', 0))).items():
-        res[name] = evaluate(model, loader, device, num_classes, amp_dtype, corrupt=fn)['acc']
+        res[name] = evaluate(model, loader, device, num_classes, amp_dtype, corrupt=fn, desc=name)['acc']
     for m in ('audio', 'video'):
         if hasattr(model, 'missing'):
             model.missing = m
-            res[f'missing_{m}'] = evaluate(model, loader, device, num_classes, amp_dtype)['acc']
+            res[f'missing_{m}'] = evaluate(model, loader, device, num_classes, amp_dtype, desc=f'missing_{m}')['acc']
             model.missing = None
     return res
 
@@ -263,10 +327,14 @@ def main():
     warmup = int(tcfg.get('warmup_epochs', 1) * len(loaders['train']))
 
     best, step, log = -1.0, 0, []
+    show = tcfg.get('progress', True)
+    log_every = tcfg.get('log_every', 50)
     for ep in range(epochs):
         model.train()
         t0, run = time.time(), {}
-        for b in loaders['train']:
+        correct = seen = 0
+        bar = Progress(loaders['train'], f'ep {ep + 1}/{epochs}', enabled=show, log_every=log_every)
+        for b in bar:
             b = to_device(b, device)
             cosine_lr(opt, step, total, warmup)
             with torch.autocast(device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
@@ -281,7 +349,7 @@ def main():
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
-            nn.utils.clip_grad_norm_(model.parameters(), tcfg.get('clip_grad', 5.0))
+            gnorm = nn.utils.clip_grad_norm_(model.parameters(), tcfg.get('clip_grad', 5.0))
             scaler.step(opt)
             scaler.update()
             if ema:
@@ -289,20 +357,36 @@ def main():
             step += 1
             for k, v in losses.items():
                 run[k] = run.get(k, 0.0) + v.item()
+            correct += (out['logits'].argmax(-1) == b['target']).sum().item()
+            seen += b['target'].shape[0]
+            k = bar.i  # running means over the epoch so far; components are in the epoch summary
+            extra = {'kd': run['kd'] / k} if 'kd' in run else {}
+            bar.update(loss=sum(run.values()) / k, **extra, acc=correct / seen,
+                       lr=f"{opt.param_groups[0]['lr']:.1e}", gnorm=float(gnorm),
+                       sps=f"{seen / (time.time() - t0):.0f}/s", mem=gpu_mem())
+        bar.close()
         n = max(1, len(loaders['train']))
         eval_model = ema.model if ema else model
-        val = evaluate(eval_model, loaders['val'], device, num_classes, amp_dtype)
+        val = evaluate(eval_model, loaders['val'], device, num_classes, amp_dtype, desc='val', progress=show)
         rec = {'epoch': ep, 'time': round(time.time() - t0, 1), **{k: v / n for k, v in run.items()},
                'val_acc': val['acc'], 'val_f1': val['macro_f1'],
                'val_audio_acc': val.get('audio_only_acc'), 'val_video_acc': val.get('video_only_acc')}
         log.append(rec)
-        print(json.dumps(rec))
-        if val['acc'] > best:
+        with open(os.path.join(out_dir, 'log.jsonl'), 'a') as f:  # full record per epoch
+            f.write(json.dumps(rec) + '\n')
+        improved = val['acc'] > best
+        if improved:
             best = val['acc']
             torch.save(eval_model.state_dict(), os.path.join(out_dir, 'best.pt'))
+        losses_s = ' '.join(f'{k} {v / n:.4f}' for k, v in run.items())
+        uni = (f" | A {val['audio_only_acc']:.4f} V {val['video_only_acc']:.4f}"
+               if val.get('audio_only_acc') is not None else '')
+        print(f"ep {ep + 1:>3}/{epochs} | {losses_s} | train acc {correct / max(1, seen):.4f} | "
+              f"val acc {val['acc']:.4f} f1 {val['macro_f1']:.4f}{uni} | best {best:.4f}"
+              f"{' *' if improved else ''} | {rec['time']:.0f}s", flush=True)
 
     model.load_state_dict(torch.load(os.path.join(out_dir, 'best.pt'), map_location=device))
-    test = evaluate(model, loaders['test'], device, num_classes, amp_dtype)
+    test = evaluate(model, loaders['test'], device, num_classes, amp_dtype, desc='test', progress=show)
     if args.robustness or cfg.get('robustness', {}).get('enabled', False):
         test['robustness'] = robustness(model, loaders['test'], device, num_classes, amp_dtype, cfg)
     # deployable model: hypercomplex kernels folded into dense layers (same outputs, faster)

@@ -22,6 +22,8 @@ train:
   clip_grad: 5.0
   ema: 0.999
   amp: bf16
+  progress: true             # live in-epoch bar (tqdm on a terminal; text line every log_every steps otherwise)
+  log_every: 50
 robustness:                  # U-FFIA protocol: audio SNR -10..20 dB, video darkness / Gaussian noise, missing modality
   enabled: true
   noise_dir: null            # folder of bubble/pump noise recordings; null means white noise (not comparable)
