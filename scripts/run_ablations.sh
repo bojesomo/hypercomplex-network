@@ -6,7 +6,9 @@ set -euo pipefail
 CFG=${1:-configs/student_hyper.yaml}; shift || true
 EXTRA=("$@")
 # TRAIN_ARGS (env) is passed through, e.g. TRAIN_ARGS=--synthetic for a dry run.
-run() { local name=$1; shift; python train.py ${TRAIN_ARGS:-} -c "$CFG" --set name="$name" "$@" "${EXTRA[@]/#/--set=}"; }
+# SEEDS (env, default "0"): one run per seed, named <name>_s<seed>; make_paper_assets.py reports mean +- std.
+run() { local name=$1; shift; for sd in ${SEEDS:-0}; do
+  python train.py ${TRAIN_ARGS:-} -c "$CFG" --set name="${name}_s${sd}" --set seed="$sd" "$@" "${EXTRA[@]/#/--set=}"; done; }
 
 # A. Fusion depth, deep -> early (progressive fusion from stage k onwards)
 run A_fs3        --set "model.fusion_stages=[3]"

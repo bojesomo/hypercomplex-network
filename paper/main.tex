@@ -1,0 +1,37 @@
+% Standalone build of the HyperAVNet methodology and results sections.
+% To use in a full paper: copy sections/, figures/, tables/ and refs.bib, then
+%   \input{sections/method} \input{sections/experiments} \input{sections/results}
+% and add the packages below. Set \showtodosfalse to hide the review notes.
+\documentclass[10pt,twocolumn]{article}
+\usepackage[a4paper,margin=18mm,columnsep=6mm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,microtype}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{graphicx,booktabs,xcolor}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage{cleveref}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+
+% review notes: visible while drafting, empty when \showtodosfalse
+\newif\ifshowtodos \showtodostrue
+\newcommand{\todo}[1]{\ifshowtodos{\color{orange!80!black}\textsf{\small[#1]}}\fi}
+
+\IfFileExists{tables/macros.tex}{\input{tables/macros.tex}}{}
+
+\title{HyperAVNet: Parameter-Efficient Hypercomplex Audio-Visual Fusion\\for Fish Feeding Intensity Assessment\\[4pt]
+\large Methodology, Experimental Set-up and Results}
+\author{Alabi Bojesomo \and \textit{co-authors}}
+\date{\textit{Draft} --- \today}
+
+\begin{document}
+\maketitle
+
+\input{sections/method}
+\input{sections/experiments}
+\input{sections/results}
+
+\bibliographystyle{unsrtnat}
+\bibliography{refs}
+\end{document}

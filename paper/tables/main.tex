@@ -1,0 +1,25 @@
+\begin{tabular}{llrrrrl}
+\toprule
+Method & Mod. & Params (M) & GMACs & Acc. (\%) & F1 (\%) & Protocol \\
+\midrule
+Pre-CNN10~\cite{cui2024uffia} & A & 5.00 & 3.347 & 85.9 & -- & paper split \\
+Pretrained-S3D~\cite{cui2024uffia} & V & 7.90 & 22.826 & 89.8 & -- & paper split \\
+Self-attention~\cite{cui2024uffia} & AV & 47.70 & 68.404 & 89.2 & -- & paper split \\
+MBT~\cite{cui2024uffia} & AV & 47.69 & 68.690 & 72.4 & -- & paper split \\
+Cross-attention~\cite{cui2024uffia} & AV & 35.08 & 60.933 & 91.7 & -- & paper split \\
+U-FFIA + KD~\cite{cui2024uffia} & AV & 21.63 & 15.488 & 90.7 & -- & paper split \\
+\midrule
+ACAF-Net~\cite{acafnet2025}$^\dagger$ & AV & -- & -- & 95.4 & -- & random split \\
+DynaGate-AV (Light)~\cite{dynagate2026} & AV & -- & 5.290 & 96.4 & -- & official split, 19,963 clips \\
+HMMF-Net~\cite{hmmfnet2026}$^\dagger$ & AV & 3.99 & 1.002 & 96.8 & 96.9 & 5-fold CV \\
+HMKD~\cite{hmkd2026}$^\dagger$ & AV & -- & -- & 97.5 & -- & 26,843-pair holdout \\
+LDMF~\cite{ldmf2026}$^\dagger$ & AV & 7.10 & -- & 98.2 & -- & filtered subset \\
+\midrule
+Real late-concat baseline (ours, re-run) & AV & -- & -- & -- & -- & official split \\
+Teacher: CNN10 + S3D + HCF & AV & -- & -- & -- & -- & official split \\
+Teacher: EfficientAT + MoViNet-A0 + HCF & AV & -- & -- & -- & -- & official split \\
+HyperAVNet-Q (no KD) & AV & -- & -- & -- & -- & official split \\
+\textbf{HyperAVNet-Q (KD)} & AV & -- & -- & -- & -- & official split \\
+HyperAVNet-O (KD) & AV & -- & -- & -- & -- & official split \\
+\bottomrule
+\end{tabular}

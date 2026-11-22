@@ -1,0 +1,78 @@
+% ============================================================================
+%  Experimental set-up -- \input{sections/experiments}
+% ============================================================================
+\section{Experimental Set-up}
+\label{sec:setup}
+
+\paragraph{Dataset.} AV-FFIA~\cite{cui2024uffia} contains synchronised two-second audio--video clips of
+\textit{Oplegnathus punctatus} feeding in a recirculating tank, labelled by a feeding technician into
+four intensities. Audio was recorded by a hydrophone at 256\,kHz (used at 64\,kHz), and video by an
+overhead camera at 25\,fps. The paper describes 27,000 clips (6,750 per class). The published
+splits~\cite{cui2024uffia}, later re-implementations~\cite{dynagate2026,hmmfnet2026} and the public
+release disagree on the clip count, so we report the number of clips we used (\todo{N clips}) and
+release our split files.
+
+\paragraph{Evaluation protocols.} Published AV-FFIA results use incompatible protocols, so we
+evaluate under three and state the protocol with every number.
+(i)~\emph{Official split}: the U-FFIA rule (each class shuffled with seed 25; 700 test and 700
+validation clips per class; the rest for training), applied to a \emph{sorted} file list so that the
+split is deterministic. We publish its hash. This is the protocol of~\cite{cui2024uffia,dynagate2026}.
+(ii)~\emph{5-fold stratified cross-validation}, as in~\cite{hmmfnet2026}; one fold is the test set, and
+one-eighth of the remaining clips is held out for model selection.
+(iii)~\emph{Session-disjoint split}: whole recording sessions (dates) are assigned to the train,
+validation or test set. The clips are two-second segments of one-minute recordings, so every
+clip-level random split, including (i) and (ii), places near-duplicate neighbours in both train and
+test. Protocol (iii) measures generalisation to unseen sessions; to our knowledge it is the first
+leakage-free result on AV-FFIA.
+
+\paragraph{Pre-processing and augmentation.} Audio is resampled to 64\,kHz and cropped or padded to 2\,s.
+Log-mel spectrograms follow U-FFIA (window 2048, hop 1024, 128 bins). Training uses SpecAugment
+(two frequency masks of width $\le8$ and two time masks of width $\le16$), random gain
+($\pm6$\,dB) and circular time shift. Sixteen frames are sampled uniformly per clip and resized to a
+short side of 128 (student) or 256 (teacher), then randomly cropped to $112^{2}$ (student) or $224^{2}$
+(teacher), with horizontal flips and brightness/contrast jitter. Evaluation uses a centre crop and no
+augmentation. Under distillation the student receives the teacher's $224^{2}$ input and resizes it to
+$112^{2}$ internally, so both models see exactly the same augmented clip.
+
+\paragraph{Teachers.} The default teacher pairs the strongest pretrained single-modality models on
+AV-FFIA~\cite{cui2024uffia}: AudioSet PANNs CNN10~\cite{kong2020panns} and Kinetics-400
+S3D~\cite{xie2018s3d}. Their last four stages are fused by HCF ($\mathcal{S}=\{0,1,2,3\}$, $D=384$,
+$N_b=16$), giving 15.9\,M parameters and 21.5\,GMACs. The teacher ablation (Table~\ref{tab:teachers})
+varies the backbone pair over ten configurations (T1--T10), changing one modality at a time where
+possible:
+\begin{itemize}
+  \item \emph{audio}: CNN10, CNN14, an ImageNet EfficientNet-B0 on mel spectrograms, AST~\cite{gong2021ast}, and EfficientAT
+mn10~\cite{schmid2023efficientat};
+  \item \emph{video}: S3D, R(2+1)D-18, a per-frame ConvNeXt-T with a hypercomplex temporal adapter,
+X3D-M~\cite{feichtenhofer2020x3d}, VideoMAE-B~\cite{tong2022videomae}, and MoViNet-A0~\cite{kondratyuk2021movinets}.
+\end{itemize}
+T10 reproduces the EfficientAT + MoViNet-A0 teacher pair of~\cite{hmkd2026}. Each teacher is trained with
+the same recipe, and a student is distilled from each.
+
+\paragraph{Baselines.} We compare against the results published by
+\cite{cui2024uffia,acafnet2025,dynagate2026,hmmfnet2026,hmkd2026,ldmf2026}, each with its stated protocol,
+and against models we re-train under our protocol: a real-valued late-concatenation model with the
+teacher's backbones, the teachers, and HyperAVNet without distillation. Re-runs of the same
+cross-attention baseline in different works vary by about 1.5 percentage points (91.7\%~\cite{cui2024uffia},
+92.4\%~\cite{dynagate2026}, 93.4\%~\cite{acafnet2025}). We therefore regard differences of that size
+across papers as inconclusive, and draw conclusions only from comparisons within our own pipeline.
+
+\paragraph{Implementation details.} Models are trained with AdamW ($\beta=(0.9,0.999)$, weight decay
+0.05, none on normalisation, bias and token parameters), batch size 32 (student) or 16 (teacher), and a
+peak learning rate of $10^{-3}$ (student) or $3\times10^{-4}$ (teacher; pretrained weights at
+$0.3\times$). The schedule is a cosine decay with a two-epoch warm-up over 40 (student) or 30
+(teacher) epochs. We use bf16 mixed precision, gradient clipping at 5, stochastic depth 0.1 and modality
+dropout $p=0.1$. Model selection uses validation accuracy of an exponential moving average of the
+weights (decay 0.999), and the test set is evaluated once. Every configuration is run with three
+seeds (the split is fixed), and we report mean $\pm$ standard deviation. Parameters are counted from
+the trained model. Compute is counted with PyTorch's \texttt{FlopCounterMode} and reported in MACs
+(1\,MAC $=$ 2\,FLOPs), which is the unit U-FFIA calls ``FLOPs''. We confirmed this by measuring
+torchvision S3D at $20\times224^{2}$ as 22.4\,GMACs, against 22.8 reported in~\cite{cui2024uffia}.
+
+\paragraph{Metrics and robustness protocol.} We report accuracy (the standard metric in FFIA) and
+macro-F1, plus audio-only and video-only accuracy from the auxiliary heads. Robustness follows
+\cite{cui2024uffia}: noise is added to the whole audio clip at an SNR of $-10$, $-5$, $0$, $10$ or 20\,dB,
+using bubble and pump recordings (\todo{or white noise if the recordings are unavailable; state
+which}). Video is corrupted by darkness (intensities $\times0.25$) and additive Gaussian noise
+($\sigma^{2}=0.2$). We also evaluate with the audio or the video absent ($\mu_a=0$ or $\mu_v=0$ in
+Eq.~\eqref{eq:heads}). All corruptions are seeded, so every model sees identical corrupted inputs.

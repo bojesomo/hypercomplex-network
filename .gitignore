@@ -7,3 +7,10 @@ feats/
 data/*.csv
 .pytest_cache/
 pretrained/
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.bbl
+paper/*.blg
+paper/*.fls
+paper/*.fdb_latexmk
