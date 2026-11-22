@@ -44,6 +44,33 @@ their Table II. `train.py` reports both `gflops` and `gmacs`.
 AV accuracy under bubble and pump noise, from −10 to 20 dB: cross-attention 0.727 / 0.768 /
 0.805 / 0.834 / 0.867; U-FFIA + KD 0.726 / 0.779 / 0.806 / 0.835 / 0.876.
 
+### Later work: the true state of the art (literature review, Nov 2026)
+
+The full review, with sources and a verified/snippet label on every number, is in
+[reports/AV FFIA state of the art.md](../reports/AV%20FFIA%20state%20of%20the%20art.md).
+0.917 is **not** the current bar. The later AV results all use different protocols:
+
+| model | AV acc. | params / compute | protocol | source |
+|---|---|---|---|---|
+| LDMF (2026) | 98.22% | 7.10M | filtered subset (6,016 clips) | snippet |
+| HMKD (Inf. Proc. Agric. 2026; teacher EfficientAT + MoViNet-A0) | 97.47 ± 0.61% | ≈60% < teacher | 26,843 pairs, holdout | snippet |
+| HMMF-Net (arXiv 2611.09224) | 96.77 ± 0.27% | 3.987M / 1.002 "GFLOPs" | 5-fold CV, 27,067 clips | snippet |
+| **DynaGate-AV** (GitHub) | **96.5% / 96.4%** | 5.64 / 5.29 "GFLOPs" | **official code split**, 19,963 clips | verified (repo) |
+| ACAF-Net (Animals 2025) | 95.4% | n/r | random clip split | snippet |
+
+Single-modality bests are still about 0.86 (audio) and 0.90 (video). Re-runs of the same
+baseline vary by about 1.5 pp. The public Zenodo release may hold only 19,963 clips. All
+published splits are random at clip level, so they carry a leakage risk.
+
+**Targets:** > 96.5% on the official split and > 96.8% under 5-fold CV, with the fewest
+parameters, plus the first session-disjoint result. Protocols: `--protocol uffia | kfold |
+grouped` in `train.py --build-manifest`, and `data.cv_fold` for k-fold.
+
+**Teacher ablation:** run `scripts/run_teacher_ablation.sh` (T1–T9, see
+`scripts/make_teacher_configs.py`): CNN10 / CNN14 / EfficientNet-mel / AST × S3D / R(2+1)D /
+ConvNeXt-frames / X3D-M / VideoMAE. Each teacher is trained, then a student is distilled from
+it, plus a no-KD reference.
+
 What this implies for the design:
 1. Pretrained CNNs beat transformers on this data, so the teacher is **PANNs CNN10 + S3D**
    (`configs/teacher_panns_s3d.yaml`). The AST + VideoMAE teacher is kept as an ablation only.

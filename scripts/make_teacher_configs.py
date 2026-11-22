@@ -31,6 +31,18 @@ TEACHERS = {
                           {'audio': {'type': 'timm_audio', 'model_name': 'efficientnet_b0.ra_in1k',
                                      'frontend': {'sample_rate': 64000, 'n_fft': 2048, 'hop': 1024, 'n_mels': 128}}}),
     'T6_ast_videomae': ('configs/teacher_ast_videomae.yaml', {}),
+    # X3D: best classic 3D CNN on animal-behaviour video (Animal Kingdom), about 4.7 GMACs at 16x224
+    'T7_cnn10_x3d_m': ('configs/teacher_panns_s3d.yaml',
+                       {'video': {'type': 'pv_video', 'model_name': 'x3d_m', 'grid': 2}}),
+    # one-modality-at-a-time transformer swaps (AST 0.736 and ViViT 0.743 under-performed in U-FFIA)
+    'T8_ast_s3d': ('configs/teacher_panns_s3d.yaml',
+                   {'audio': {'type': 'ast', 'model_name': 'MIT/ast-finetuned-audioset-10-10-0.4593',
+                              'layers': [3, 6, 9, 12], 'in_sample_rate': 64000}}),
+    'T9_cnn10_videomae': ('configs/teacher_panns_s3d.yaml',
+                          {'video': {'type': 'videomae', 'model_name': 'MCG-NJU/videomae-base-finetuned-kinetics',
+                                     'layers': [3, 6, 9, 12], 'grid': 7}}),
+    # Not yet implemented (needs external code): HMKD's EfficientAT (mn10_as) + MoViNet-A0 teacher,
+    # BEATs (attentive multi-layer pooling), V-JEPA 2 / VideoMAE V2, CAV-MAE (joint AV).
 }
 
 

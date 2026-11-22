@@ -55,7 +55,7 @@ def main():
               'their initial values; set freeze: true and temporal_adapter: false for cached training.')
     for split in ('train', 'val', 'test'):
         ds = AVFFIADataset(dcfg['manifest'], split, dcfg['sample_rate'], dcfg['seconds'], dcfg['num_frames'],
-                           dcfg['size'], dcfg['crop'], cache_dir=dcfg.get('cache_dir'))
+                           dcfg['size'], dcfg['crop'], cache_dir=dcfg.get('cache_dir'), cv_fold=dcfg.get('cv_fold'))
         views = args.views if split == 'train' else 1
         os.makedirs(os.path.join(args.out, split), exist_ok=True)
         store = [{'a': [], 'v': [], 'target': int(it['label'])} for it in ds.items]

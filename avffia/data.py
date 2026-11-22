@@ -43,6 +43,17 @@ INTENSITY = {'none': 0, 'weak': 1, 'medium': 2, 'strong': 3}
 # --------------------------------------------------------------------------------------
 def _find_audio(video_path: str, video_root: str, audio_root: Optional[str]) -> str:
     if audio_root:
+        # U-FFIA / Zenodo convention (utils/get_audioname.py in the U-FFIA repo): the audio lives in
+        # <audio_root>/<d3>/<d2>/<class>/*.wav, mirroring the last three video directories, and
+        # pairs with the video whose file stem matches after the first 9 characters.
+        parts = os.path.normpath(video_path).split(os.sep)
+        vid_id = os.path.splitext(parts[-1])[0][9:]
+        for base in (audio_root, os.path.join(audio_root, 'audio_dataset')):
+            d = os.path.join(base, *parts[-4:-1])
+            if os.path.isdir(d):
+                for f in sorted(os.listdir(d)):
+                    if f.endswith('.wav') and os.path.splitext(f)[0][9:] == vid_id:
+                        return os.path.join(d, f)
         rel = os.path.relpath(os.path.splitext(video_path)[0], video_root)
         for ext in ('.wav', '.flac'):
             cand = os.path.join(audio_root, rel + ext)
@@ -56,28 +67,93 @@ def _find_audio(video_path: str, video_root: str, audio_root: Optional[str]) -> 
     return cand if os.path.exists(cand) else ''  # '' means use the mp4 audio track
 
 
+def _session(video_path: str, video_root: str, level: int) -> str:
+    """Recording-session id: the ``level`` directories directly above the class folder."""
+    rel = os.path.relpath(video_path, video_root).split(os.sep)[:-2]  # drop class folder + file
+    return '/'.join(rel[-level:]) if level > 0 else ''
+
+
 def build_manifest(video_root: str, out_csv: str, audio_root: Optional[str] = None, seed: int = 25,
-                   test_per_class: int = 700, val_per_class: int = 700) -> str:
+                   test_per_class: int = 700, val_per_class: int = 700, protocol: str = 'uffia',
+                   folds: int = 5, group_level: int = 1) -> str:
+    """Write the clip manifest. ``protocol``:
+
+    * ``uffia``: the U-FFIA code split. Each class is shuffled with ``RandomState(seed)``, then
+      700 clips go to test, 700 to val and the rest to train. Files are **sorted** first: the
+      U-FFIA code uses unsorted ``os.listdir``, so its split is not portable across file systems.
+      The sorted version is deterministic, and the manifest hash identifies it.
+    * ``kfold``: stratified ``folds``-fold CV (split column ``fold0`` ... ``foldK-1``), the
+      HMMF-Net protocol. Select a fold at training time with ``data.cv_fold``.
+    * ``grouped``: session-disjoint. Whole recording sessions (the ``group_level`` directories
+      above the class folder, e.g. a recording date) are assigned to test, val or train, so
+      adjacent 2 s clips cut from the same minute of recording cannot leak across the split.
+      All published AV-FFIA results use random clip-level splits.
+    """
     rows = []
-    for cls in CLASSES:
-        vids = sorted(glob.glob(os.path.join(video_root, '**', cls, '*.mp4'), recursive=True))
-        rng = np.random.RandomState(seed)
-        rng.shuffle(vids)
+    rng = np.random.RandomState(seed)
+    per_class = {cls: sorted(glob.glob(os.path.join(video_root, '**', cls, '*.mp4'), recursive=True))
+                 for cls in CLASSES}
+    if protocol == 'grouped':
+        sessions = sorted({_session(v, video_root, group_level) for vs in per_class.values() for v in vs})
+        rng.shuffle(sessions)
+        n_test, n_val = test_per_class * len(CLASSES), val_per_class * len(CLASSES)
+        counts = {}
+        for vs in per_class.values():
+            for v in vs:
+                k = _session(v, video_root, group_level)
+                counts[k] = counts.get(k, 0) + 1
+        assign, n = {}, {'test': 0, 'val': 0}
+        for k in sessions:  # fill test, then val, each with whole sessions; the rest is train
+            dst = 'test' if n['test'] < n_test else 'val' if n['val'] < n_val else 'train'
+            assign[k] = dst
+            if dst != 'train':
+                n[dst] += counts[k]
+        if len(sessions) < 3:
+            raise ValueError(f'only {len(sessions)} sessions at group_level={group_level}; use a deeper level')
+    for cls, vids in per_class.items():
+        vids = list(vids)
+        if protocol != 'grouped':
+            np.random.RandomState(seed).shuffle(vids)
         for i, v in enumerate(vids):
-            split = 'test' if i < test_per_class else 'val' if i < test_per_class + val_per_class else 'train'
+            if protocol == 'uffia':
+                split = 'test' if i < test_per_class else 'val' if i < test_per_class + val_per_class else 'train'
+            elif protocol == 'kfold':
+                split = f'fold{i % folds}'
+            elif protocol == 'grouped':
+                split = assign[_session(v, video_root, group_level)]
+            else:
+                raise ValueError(protocol)
             rows.append({'video': v, 'audio': _find_audio(v, video_root, audio_root), 'label': LABELS[cls],
-                         'split': split})
+                         'split': split, 'session': _session(v, video_root, max(group_level, 1))})
     os.makedirs(os.path.dirname(os.path.abspath(out_csv)), exist_ok=True)
     with open(out_csv, 'w', newline='') as f:
-        w = csv.DictWriter(f, fieldnames=['video', 'audio', 'label', 'split'])
+        w = csv.DictWriter(f, fieldnames=['video', 'audio', 'label', 'split', 'session'])
         w.writeheader()
         w.writerows(rows)
+    summary = {}
+    for r in rows:
+        summary.setdefault(r['split'], [0] * len(CLASSES))[int(r['label'])] += 1
+    digest = hashlib.sha256('\n'.join(f"{os.path.relpath(r['video'], video_root)},{r['split']}"
+                                       for r in rows).encode()).hexdigest()[:16]
+    print(f'protocol={protocol} clips={len(rows)} missing_audio={sum(not r["audio"] for r in rows)} '
+          f'split_hash={digest}')
+    for k in sorted(summary):
+        print(f'  {k}: {sum(summary[k])} ({", ".join(f"{c}={n}" for c, n in zip(CLASSES, summary[k]))})')
     return out_csv
 
 
-def read_manifest(path: str, split: str) -> List[Dict]:
+def read_manifest(path: str, split: str, cv_fold: Optional[int] = None, val_every: int = 8) -> List[Dict]:
+    """Rows of one split. For a k-fold manifest with ``cv_fold=f``: fold f is the test set, and
+    every ``val_every``-th clip of the remaining folds (deterministically) forms val."""
     with open(path) as f:
-        return [r for r in csv.DictReader(f) if r['split'] == split]
+        rows = list(csv.DictReader(f))
+    if cv_fold is None:
+        return [r for r in rows if r['split'] == split]
+    test = [r for r in rows if r['split'] == f'fold{cv_fold}']
+    rest = [r for r in rows if r['split'] != f'fold{cv_fold}']
+    if split == 'test':
+        return test
+    return [r for i, r in enumerate(rest) if (i % val_every == 0) == (split == 'val')]
 
 
 # --------------------------------------------------------------------------------------
@@ -142,8 +218,8 @@ class AVFFIADataset(Dataset):
 
     def __init__(self, manifest: str, split: str, sample_rate: int = 64000, seconds: float = 2.0,
                  num_frames: int = 16, size: int = 128, crop: int = 112, train: Optional[bool] = None,
-                 cache_dir: Optional[str] = None, audio_gain_db: float = 6.0):
-        self.items = read_manifest(manifest, split)
+                 cache_dir: Optional[str] = None, audio_gain_db: float = 6.0, cv_fold: Optional[int] = None):
+        self.items = read_manifest(manifest, split, cv_fold)
         self.split, self.sr, self.seconds = split, sample_rate, seconds
         self.num_frames, self.size, self.crop = num_frames, size, crop
         self.train = (split == 'train') if train is None else train

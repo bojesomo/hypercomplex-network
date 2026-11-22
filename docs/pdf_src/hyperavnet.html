@@ -88,24 +88,25 @@ Audio and video are fused by a new <b>Hypercomplex Component Fusion (HCF)</b> bl
 HCF can be attached at any depth of the two backbones. A configurable <b>deep-to-early</b> schedule, with zero-initialised cross-modal feedback, sweeps from late fusion to progressive early fusion.
 Large pretrained audio and video models (PANNs CNN10/14, S3D and other timm and torchvision networks) serve either as a <b>teacher</b> for multi-level distillation or as frozen <b>feature extractors</b> under a hypercomplex side network.
 The default quaternion student has <b>2.14&nbsp;M parameters</b> (3.7× fewer than the identical real-valued network, 7.88&nbsp;M) and costs <b>1.18&nbsp;GMACs</b> per 2&nbsp;s clip (2.36&nbsp;GFLOPs).
-That is <b>10× fewer parameters and 13× less compute than U-FFIA</b> (21.6&nbsp;M, 15.5&nbsp;GMACs) and 16× / 52× less than the current best AV model on AV-FFIA, cross-attention fusion at 0.917 accuracy (35.1&nbsp;M, 60.9&nbsp;GMACs).
-The accuracy target is therefore <b>&gt;&nbsp;0.917</b>, at an order of magnitude lower cost.</p>
+That is <b>10× fewer parameters and 13× less compute than U-FFIA</b> (21.6&nbsp;M, 15.5&nbsp;GMACs), and 1.9× fewer parameters than the most efficient high-accuracy model since then, HMMF-Net (3.99&nbsp;M).
+A literature review (§1.2) shows that the paper's 0.917 is no longer the bar. Later works report <b>95.4–98.2%</b> AV accuracy, but under at least five incompatible protocols.
+The like-for-like targets are therefore <b>&gt;&nbsp;96.5% on the official code split</b> (DynaGate-AV) and <b>&gt;&nbsp;96.8% under 5-fold CV</b> (HMMF-Net), at the lowest parameter count.</p>
 </div>
 
 <div class="callout warn"><b class="t">Read this first: what is and is not established</b>
-Our own parameter, FLOP, shape and latency figures were measured from the implemented code. Published baselines are quoted from the U-FFIA paper (Tables I–V).
+Our own parameter, FLOP, shape and latency figures were measured from the implemented code. U-FFIA numbers were read from its arXiv v3 PDF (Tables I–V). Later works' numbers come from a literature review (§1.2), whose tables mark which figures were verified against a primary source.
 <b>No accuracy of HyperAVNet on AV-FFIA has been measured yet</b>: there was no GPU or dataset in the build environment.
 Claims of beating the state of the art must therefore wait for the experiments in §8. Where a design choice is a hypothesis to be tested, this report says so.</div>
 
 <div class="toc">
-  <div><span>1</span>Task, data, protocol and published SOTA</div>
+  <div><span>1</span>Task, data, protocols and the true SOTA</div>
   <div><span>2</span>Architecture overview</div>
   <div><span>3</span>Hypercomplex layers: the parameter-sharing mechanism</div>
   <div><span>4</span>Hypercomplex student backbones</div>
   <div><span>5</span>Hypercomplex Component Fusion (HCF)</div>
   <div><span>6</span>Fusion depth: the deep-to-early schedule and feedback</div>
   <div><span>7</span>Pretrained models: teacher, extractor, distillation</div>
-  <div><span>8</span>Training recipe and ablation protocol</div>
+  <div><span>8</span>Training recipe, ablations, teacher ablation</div>
   <div><span>9</span>Complexity and deployment</div>
   <div><span>10</span>Guide for writing the paper</div>
   <div><span>A</span>Reproduction commands and code map</div>
@@ -113,7 +114,7 @@ Claims of beating the state of the art must therefore wait for the experiments i
 </div>
 
 <!-- ====================================================================== 1 -->
-<h2>1&nbsp;&nbsp;Task, data, protocol and published SOTA</h2>
+<h2>1&nbsp;&nbsp;Task, data, protocols and the true SOTA</h2>
 <p>AV-FFIA (Cui et al., U-FFIA) has 27,000 synchronised two-second audio-video clips of <i>Oplegnathus punctatus</i> feeding in a recirculating tank (3&nbsp;m diameter, 0.75&nbsp;m deep), 6,750 per class.
 Audio was recorded underwater by a hydrophone at 256&nbsp;kHz; video by an overhead camera at 25&nbsp;fps (50 frames per clip). A feeding technician labelled each one-minute recording as <i>None</i>, <i>Weak</i>, <i>Medium</i> or <i>Strong</i>, and recordings were then cut into 2&nbsp;s segments.
 The data pipeline reproduces the U-FFIA conventions exactly, so results are directly comparable:</p>
@@ -158,7 +159,36 @@ The data pipeline reproduces the U-FFIA conventions exactly, so results are dire
 (1) Pretrained CNNs beat transformers on AV-FFIA (CNN10 0.859 vs AST 0.736; S3D 0.898 vs ViViT 0.743), so the recommended teacher is now <b>PANNs CNN10 + S3D</b> (§7). AST and VideoMAE are kept only as an ablation.
 (2) Cross-attention (0.917) beat self-attention (0.892) and especially MBT (0.724). U-FFIA attributes MBT's failure to bottlenecks that "attend to each modality sequentially". HCF instead reads each modality with its own cross-attention, in parallel, and then mixes them in one Hamilton product (§5). This addresses that critique directly.
 (3) Robustness to noise is part of the evaluation standard on this dataset, so it is now built into the pipeline.
-(4) The efficient-model bar is U-FFIA's 21.6&nbsp;M / 15.5&nbsp;GMACs; the student is designed an order of magnitude below it.</div>
+(4) The efficient-model bar in the U-FFIA paper is 21.6&nbsp;M / 15.5&nbsp;GMACs; the student is designed an order of magnitude below it. §1.2 shows that later works have already moved both bars.</div>
+
+<h3>1.2&nbsp;&nbsp;Later work on AV-FFIA: the real state of the art (literature review, Nov 2026)</h3>
+<p class="tcap"><b>Table C.</b> Audio-visual results reported on AV-FFIA after U-FFIA. <b>None is directly comparable with any other</b>, because the protocols differ.
+"V" = verified against a primary source (repo or PDF); "S" = from search snippets only (the full papers were not reachable from the build environment), so check before citing.</p>
+<table>
+  <thead><tr><th>Model (venue)</th><th class="num">AV acc.</th><th>Params / compute</th><th>Protocol</th><th>Src</th></tr></thead>
+  <tbody>
+    <tr><td>LDMF (Research Square rs-8304036; Aquaculture Int. 2026)</td><td class="num">98.22%</td><td>7.10&nbsp;M / n/r</td><td>holdout, filtered subset (6,016 clips per HMMF-Net)</td><td>S</td></tr>
+    <tr><td>HMKD student (Inf. Proc. Agric. 2026); teacher EfficientAT + MoViNet-A0</td><td class="num">97.47 ± 0.61%</td><td>≈60% fewer params than its teacher</td><td>holdout, 26,843 processed pairs</td><td>S</td></tr>
+    <tr><td>HMMF-Net (arXiv 2611.09224, Nov 2026)</td><td class="num">96.77 ± 0.27%</td><td>3.987&nbsp;M / 1.002&nbsp;"GFLOPs"</td><td>5-fold CV, 27,067 clips</td><td>S</td></tr>
+    <tr class="hl"><td>DynaGate-AV Full / Light (GitHub, paper draft)</td><td class="num">96.5% / 96.4%</td><td>5.64 / 5.29&nbsp;"GFLOPs"</td><td><b>official code split</b> (700/700 per class), 19,963 clips, seed 42</td><td>V</td></tr>
+    <tr><td>ACAF-Net (Animals 15:2245, 2025)</td><td class="num">95.4%</td><td>n/r</td><td>random clip-level split</td><td>S</td></tr>
+    <tr><td>U-FFIA cross-attention / U-FFIA + KD (TASE 2024)</td><td class="num">91.7% / 90.7%</td><td>35.1 / 21.6&nbsp;M; 60.9 / 15.5&nbsp;GMACs</td><td>paper split (21,000 / 2,800 / 2,800 stated)</td><td>V</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li><b>Single modality.</b> The audio-only and video-only records still effectively stand at U-FFIA's Pre-CNN10 0.859 and Pretrained-S3D 0.898. Re-runs give MobileNetV2 audio 83.6–86.0% and S3D video 82.7–89.0%. AquaDistill (Comput. Electron. Agric. 2025) reports 87% for audio-only inference with visual distillation (S).</li>
+  <li><b>Re-run variance.</b> Cross-attention scores 91.7% (U-FFIA), 92.4% (DynaGate) and 93.4% (ACAF-Net) in different hands, so treat gaps under about 1.5&nbsp;pp over someone else's baseline as noise.</li>
+  <li><b>The data release does not match the paper.</b> The paper states 27,000 clips and a 21,000 / 2,800 / 2,800 split, which sums to 26,600. HMMF-Net counts 27,067 clips. DynaGate's public reproduction found only 19,963 clips on Zenodo (14,363 / 2,800 / 2,800). The official split exists only as code (seed 25 over unsorted <span class="mono">os.listdir</span>), so it is not portable, and the released U-FFIA KD trainer has a syntax error.</li>
+  <li><b>Possible leakage.</b> Every published result uses a random clip-level split. Clips are 2&nbsp;s segments cut from one-minute recordings, so near-duplicate neighbours can land in train and test. A 2025 critical review (MDPI) flags this. Accuracies above 95% may therefore be inflated, and no session-disjoint result exists yet.</li>
+  <li><b>Compute units.</b> DynaGate's and HMMF-Net's "GFLOPs" may be MACs, as U-FFIA's are; this is unverified. The student is 1.18&nbsp;GMACs = 2.36&nbsp;GFLOPs, so its compute is comparable to HMMF-Net's, not clearly lower. The safe efficiency claim is on <b>parameters</b>.</li>
+</ul>
+<div class="callout ok"><b class="t">Fair comparison protocol adopted for the write-up</b>
+(1) <b>Official split, reproducibly</b>: U-FFIA's 700/700 rule over a <i>sorted</i> file list (<span class="mono">--protocol uffia</span>). Report the clip count and the split hash that <span class="mono">build_manifest</span> prints, and release the manifest.
+(2) <b>Re-run the comparators</b> on that split: CNN10, S3D, cross-attention, the teacher, and DynaGate-AV (public code). List paper-reported numbers in a separate block labelled with their protocol.
+(3) <b>5-fold CV</b> (<span class="mono">--protocol kfold</span>, <span class="mono">data.cv_fold=0..4</span>) for the comparison with HMMF-Net.
+(4) <b>Session-disjoint split</b> (<span class="mono">--protocol grouped</span>, whole recording dates held out), the first leakage-free AV-FFIA result.
+(5) Three or more seeds, mean ± std. (6) Params and MACs from a named counter, stating FLOPs = 2 × MACs.
+(7) Robustness: audio SNR −10…20&nbsp;dB, video Gaussian noise up to σ&nbsp;=&nbsp;0.2 (DynaGate's setting), darkness, and missing modality.</div>
 
 <!-- ====================================================================== 2 -->
 <h2>2&nbsp;&nbsp;Architecture overview</h2>
@@ -696,6 +726,8 @@ This mode suits large sweeps (e.g. the full fusion-depth × algebra grid) and is
     <tr><td>E</td><td>Distillation</td><td>best A–D settings ± KD; KD terms one at a time (logits / feat / rel / unimodal); U-FFIA eq. (9) KD</td><td>KD closes the gap to the teacher</td></tr>
     <tr><td>F</td><td>Robustness (evaluation only, automatic)</td><td>audio noise at SNR −10…20&nbsp;dB; video darkness ×0.5 / ×0.25 and Gaussian noise (variance 0.05–0.2); missing audio / video</td><td>H3; compare with Table B</td></tr>
     <tr><td>G</td><td>Audio front-end</td><td>SimPF <i>k</i> = 0.5 (U-FFIA) vs none</td><td>SimPF cuts audio MACs with little loss</td></tr>
+    <tr><td>T</td><td>Teacher (§8.1)</td><td>9 teacher pairs, each with its distilled student, plus no-KD</td><td>strongest teacher ≠ best student?</td></tr>
+    <tr><td>P</td><td>Split protocol</td><td>official split vs 5-fold CV vs session-disjoint</td><td>random splits inflate accuracy</td></tr>
   </tbody>
 </table>
 
@@ -708,6 +740,25 @@ This mode suits large sweeps (e.g. the full fusion-depth × algebra grid) and is
     <tr class="hl"><td>4</td><td>quaternion (default)</td><td class="num">2.137</td><td class="num">0.753</td><td class="num">0.816</td><td class="num">3.7×</td></tr>
     <tr><td>8</td><td>octonion</td><td class="num">1.235</td><td class="num">0.408</td><td class="num">0.476</td><td class="num">6.4×</td></tr>
     <tr><td>16</td><td>sedenion</td><td class="num">0.784</td><td class="num">0.236</td><td class="num">0.305</td><td class="num">10.1×</td></tr>
+  </tbody>
+</table>
+
+<h3>8.1&nbsp;&nbsp;Teacher ablation</h3>
+<p>Every teacher uses the same HCF fusion network, data and recipe; only the pretrained backbone pair changes. Each teacher is trained, then a student is distilled from it (<span class="mono">scripts/run_teacher_ablation.sh</span>). Report the teacher's AV, audio-only and video-only accuracy, the student's accuracy, and the teacher–student gap. Costs below were measured at 16 frames, 224², 2&nbsp;s audio.</p>
+<p class="tcap"><b>Table 4b.</b> Teacher grid (measured params and GMACs of each full teacher, including the fusion network).</p>
+<table>
+  <thead><tr><th>ID</th><th>Audio teacher</th><th>Video teacher</th><th class="num">Params (M)</th><th class="num">GMACs</th><th>Evidence / purpose</th></tr></thead>
+  <tbody>
+    <tr class="hl"><td>T1</td><td>PANNs CNN10</td><td>S3D (K400)</td><td class="num">15.9</td><td class="num">21.5</td><td>anchor: best audio (0.859) and video (0.898) in U-FFIA; U-FFIA's own teachers</td></tr>
+    <tr><td>T2</td><td>PANNs CNN14</td><td>S3D</td><td class="num">86.9</td><td class="num">23.1</td><td>bigger audio CNN (0.856 from scratch in U-FFIA)</td></tr>
+    <tr><td>T3</td><td>PANNs CNN10</td><td>R(2+1)D-18 @ 112²</td><td class="num">38.9</td><td class="num">44.0</td><td>alternative 3D CNN</td></tr>
+    <tr><td>T4</td><td>PANNs CNN10</td><td>ConvNeXt-T per frame + temporal adapter</td><td class="num">35.5</td><td class="num">74.9</td><td>appearance-centric 2D model</td></tr>
+    <tr><td>T5</td><td>EfficientNet-B0 on mel (ImageNet)</td><td>S3D</td><td class="num">14.7</td><td class="num">18.3</td><td>ImageNet CNN (ConvNeXtV2 beat PANNs on DeepShip sonar)</td></tr>
+    <tr><td>T6</td><td>AST</td><td>VideoMAE-B</td><td class="num">174.8</td><td class="num">202.7</td><td>all-transformer pair (AST 0.736, ViViT 0.743 in U-FFIA)</td></tr>
+    <tr><td>T7</td><td>PANNs CNN10</td><td>X3D-M (pytorchvideo)</td><td class="num">9.4</td><td class="num">8.2</td><td>best classic 3D CNN on Animal Kingdom; cheapest teacher</td></tr>
+    <tr><td>T8</td><td>AST</td><td>S3D</td><td class="num">96.8</td><td class="num">39.3</td><td>isolates the audio transformer</td></tr>
+    <tr><td>T9</td><td>PANNs CNN10</td><td>VideoMAE-B</td><td class="num">93.8</td><td class="num">184.9</td><td>isolates the video transformer (VideoMAE 86.5% in ACAF-Net)</td></tr>
+    <tr><td>—</td><td colspan="2">Planned: EfficientAT mn10 + MoViNet-A0 (HMKD's teacher); BEATs with attentive multi-layer pooling; V-JEPA 2 / VideoMAE V2; CAV-MAE (joint AV)</td><td class="num"></td><td class="num"></td><td>needs external code</td></tr>
   </tbody>
 </table>
 
@@ -740,7 +791,7 @@ To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mon
 </div>
 </div>
 
-<p class="tcap"><b>Table 6b.</b> Efficiency against the published AV models (U-FFIA Table IV; GMACs, single clip).</p>
+<p class="tcap"><b>Table 6b.</b> Efficiency against published AV models (GMACs, single clip). "?" = the source reports "GFLOPs" and it is unknown whether they are MACs, so the ratio is given as a range.</p>
 <table>
   <thead><tr><th>Model</th><th class="num">AV acc.</th><th class="num">Params (M)</th><th class="num">GMACs</th><th class="num">Params vs ours</th><th class="num">MACs vs ours</th></tr></thead>
   <tbody>
@@ -748,6 +799,8 @@ To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mon
     <tr><td>Cross-attention (SOTA)</td><td class="num">0.917</td><td class="num">35.082</td><td class="num">60.933</td><td class="num">16.4×</td><td class="num">51.6×</td></tr>
     <tr><td>MBT</td><td class="num">0.724</td><td class="num">47.689</td><td class="num">68.690</td><td class="num">22.3×</td><td class="num">58.2×</td></tr>
     <tr><td>U-FFIA (+KD)</td><td class="num">0.907</td><td class="num">21.626</td><td class="num">15.488</td><td class="num">10.1×</td><td class="num">13.1×</td></tr>
+    <tr><td>HMMF-Net (5-fold CV; snippet)</td><td class="num">0.968</td><td class="num">3.987</td><td class="num">1.002?</td><td class="num">1.9×</td><td class="num">≈0.85–1.7×</td></tr>
+    <tr><td>DynaGate-AV Light (official split)</td><td class="num">0.964</td><td class="num">n/r</td><td class="num">5.29?</td><td class="num">n/r</td><td class="num">2.2–4.5×</td></tr>
     <tr><td>Our teacher: PANNs CNN10 + S3D + HCF (16 frames, 224²)</td><td class="num">to measure</td><td class="num">15.874</td><td class="num">21.483</td><td class="num">7.4×</td><td class="num">18.2×</td></tr>
     <tr class="hl"><td>HyperAVNet-Q student</td><td class="num">to measure</td><td class="num">2.137</td><td class="num">1.180</td><td class="num">1×</td><td class="num">1×</td></tr>
     <tr><td>HyperAVNet-O student</td><td class="num">to measure</td><td class="num">1.235</td><td class="num">1.180</td><td class="num">0.58×</td><td class="num">1×</td></tr>
@@ -768,7 +821,8 @@ To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mon
   <li><b>Hypercomplex Component Fusion</b>: modality views and their multiplicative interactions are encoded as the components of a quaternion or octonion and mixed by a single Hamilton product, with a constant parameter cost whatever the algebra.</li>
   <li>A <b>systematic deep-to-early fusion study</b> with zero-initialised cross-modal feedback, identifying where audio-visual fusion helps FFIA.</li>
   <li><b>Multi-level distillation</b> from the strongest pretrained audio (PANNs CNN10) and video (S3D) models on AV-FFIA into a 2&nbsp;M-parameter hypercomplex student, and a frozen-feature side-network variant.</li>
-  <li><b>State-of-the-art accuracy on AV-FFIA</b> (&gt;&nbsp;0.917, the published cross-attention result) with 16× fewer parameters and 52× fewer MACs, and better robustness to noise than U-FFIA (Table B). <i>Only if Table 7 and the robustness runs confirm it.</i></li>
+  <li><b>State-of-the-art accuracy on AV-FFIA under stated protocols</b>: &gt;&nbsp;96.5% on the official split (DynaGate) and &gt;&nbsp;96.8% under 5-fold CV (HMMF-Net), with the fewest parameters, plus the <b>first session-disjoint AV-FFIA result</b> and a full robustness sweep. <i>Only if the experiments confirm it. If not, the honest claim is the best accuracy-per-parameter trade-off.</i></li>
+  <li>A <b>teacher ablation</b> (§8.1): which pretrained audio and video models make the best teachers on AV-FFIA, and whether a better teacher gives a better student.</li>
 </ol>
 <h3>10.3&nbsp;&nbsp;Suggested paper outline and where each item goes</h3>
 <table>
@@ -796,6 +850,8 @@ To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mon
     <tr><td>MBT [U-FFIA Tables III–IV]</td><td>AV</td><td class="num">47.689</td><td class="num">68.690</td><td class="num">72.4</td><td class="num">n/r</td></tr>
     <tr><td>Cross-attention [U-FFIA Tables III–IV], <b>SOTA</b></td><td>AV</td><td class="num">35.082</td><td class="num">60.933</td><td class="num">91.7</td><td class="num">n/r</td></tr>
     <tr><td>U-FFIA + KD [U-FFIA Tables III–IV]</td><td>AV</td><td class="num">21.626</td><td class="num">15.488</td><td class="num">90.7</td><td class="num">n/r</td></tr>
+    <tr><td>HMMF-Net [arXiv 2611.09224] (5-fold CV)</td><td>AV</td><td class="num">3.987</td><td class="num">1.002?</td><td class="num">96.77</td><td class="num">96.88</td></tr>
+    <tr><td>DynaGate-AV Light / Full [GitHub] (official split, 19,963 clips)</td><td>AV</td><td class="num">n/r</td><td class="num">5.29? / 5.64?</td><td class="num">96.4 / 96.5</td><td class="num">n/r</td></tr>
     <tr><td>Late-concat real baseline, re-run here (<span class="mono">uffia_like_baseline.yaml</span>)</td><td>AV</td><td class="num">14.938</td><td class="num">21.252</td><td class="num"></td><td class="num"></td></tr>
     <tr><td>Teacher: PANNs CNN10 + S3D + HCF</td><td>AV</td><td class="num">15.874</td><td class="num">21.483</td><td class="num"></td><td class="num"></td></tr>
     <tr><td>Frozen timm + HCF side network</td><td>AV</td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td></tr>
@@ -807,7 +863,8 @@ To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mon
 
 <h3>10.4&nbsp;&nbsp;Checklist before submission</h3>
 <ul class="check">
-  <li>Confirm the split with the authors: the code rule gives 21,400 train clips, the paper's text says 21,000.</li>
+  <li>Record your Zenodo clip count (19,963? 27,000? 27,067?) and the split hash; the paper, HMMF-Net and DynaGate disagree on the count.</li>
+  <li>Report the official split, 5-fold CV <i>and</i> the session-disjoint split, so the comparison with every prior protocol is explicit.</li>
   <li>Obtain U-FFIA's bubble and pump noise recordings (or comparable ones) for <span class="mono">robustness.noise_dir</span>; white-noise results are not comparable with their Table III.</li>
   <li>Re-run the U-FFIA-like baseline through this pipeline, so the comparison does not depend on differences in preprocessing.</li>
   <li>Use 3 seeds for every reported number; add significance tests for the closest comparisons.</li>
@@ -822,8 +879,10 @@ To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mon
 <!-- ====================================================================== A -->
 <h2>Appendix A&nbsp;&nbsp;Reproduction commands and code map</h2>
 <pre>pip install -r requirements.txt
-python -m pytest -q tests                                    # 59 offline tests
-python train.py --build-manifest --video-root /data/AV-FFIA --audio-root /data/AV-FFIA_audio
+python -m pytest -q tests                                    # 61 offline tests
+python train.py --build-manifest --video-root /data/AV-FFIA --audio-root /data/AV-FFIA/audio_dataset \
+        --protocol uffia            # or: kfold | grouped --group-level 1
+bash scripts/run_teacher_ablation.sh                         # teacher grid T1-T9 + distilled students
 python train.py -c configs/teacher_panns_s3d.yaml            # stage 1: teacher (PANNs CNN10 + S3D)
 python train.py -c configs/student_hyper_kd.yaml             # stage 2: distilled student
 python train.py -c configs/student_hyper.yaml --set model.fusion_stages=[2,3] --set name=fs23
@@ -873,6 +932,14 @@ python extract_features.py -c configs/frozen_timm_side.yaml --out feats/timm --v
   <li>J. Carreira, A. Zisserman. Quo vadis, action recognition? A new model and the Kinetics dataset (I3D). <i>CVPR</i>, 2017.</li>
   <li>Y. Zhang et al. MSIF-MobileNetV3 for fish feeding behavior analysis. <i>Aquacultural Engineering</i>, 102:102338, 2023.</li>
   <li>N. Neverova et al. ModDrop: adaptive multi-modal gesture recognition (modality dropout). <i>IEEE TPAMI</i>, 2016.</li>
+  <li>HMMF-Net: audio-visual FFIA on AV-FFIA. arXiv:2611.09224, Nov 2026. <i>(Details from snippets; verify.)</i></li>
+  <li>Nguyen et al. DynaGate-AV: dynamic gated audio-visual FFIA. github.com/Buu2004/DynaGate-AV (paper draft), 2026.</li>
+  <li>Du, Tong, Hao et al. HMKD: heterogeneous multimodal knowledge distillation for FFIA. <i>Information Processing in Agriculture</i>, 2026, doi:10.1016/j.inpa.2026.06.006. <i>(Verify.)</i></li>
+  <li>Sha et al. LDMF: lightweight dual-modal fusion for FFIA. Research Square rs-8304036 / <i>Aquaculture International</i>, 2026. <i>(Verify.)</i></li>
+  <li>ACAF-Net: audio-visual cross-attention fusion for fish feeding. <i>Animals</i> 15(15):2245, 2025, doi:10.3390/ani15152245.</li>
+  <li>AquaDistill: visually guided audio-only FFIA. <i>Computers and Electronics in Agriculture</i>, 2025, article 111132. <i>(Verify.)</i></li>
+  <li>C. Feichtenhofer. X3D: expanding architectures for efficient video recognition. <i>CVPR</i>, 2020.</li>
+  <li>F. Schmid, K. Koutini, G. Widmer. Efficient large-scale audio tagging via transformer-to-CNN knowledge distillation (EfficientAT). <i>ICASSP</i>, 2023.</li>
 </ol>
 
 </body>

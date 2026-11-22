@@ -401,6 +401,42 @@ class TorchvisionVideoBackbone(Backbone):
         return [_grid_pool_tokens(self._feats[n], self.grid) for n in self.stage_names]
 
 
+class PyTorchVideoBackbone(Backbone):
+    """Kinetics-400 single-pathway models from ``pytorchvideo`` (``pip install pytorchvideo``):
+    ``x3d_xs``, ``x3d_s``, ``x3d_m``, ``x3d_l``, ``slow_r50``, ``r2plus1d_r50``, ``csn_r101``.
+
+    X3D is the strongest of the classic 3D CNNs on animal-behaviour video (Animal Kingdom:
+    X3D 25.25 mAP vs SlowFast 20.46 vs I3D 16.48) at a fraction of S3D's cost, which makes it a
+    natural teacher-ablation candidate. Stage tokens come from the four residual stages
+    (``blocks[1..4]``).
+    """
+
+    def __init__(self, model_name='x3d_m', pretrained=True, grid=2, size=None, **kw):
+        super().__init__(**kw)
+        import pytorchvideo.models.hub as pvh
+        self.net = getattr(pvh, model_name)(pretrained=pretrained)
+        self.net.blocks = self.net.blocks[:-1]  # drop the classification head
+        self.norm = VideoNormalize((0.45, 0.45, 0.45), (0.225, 0.225, 0.225), size=tuple(size) if size else None)
+        self.grid = grid
+        with torch.no_grad():
+            self.net.eval()
+            t = self._run(torch.zeros(1, 3, 16, 112, 112))
+            self.stage_dims = [x.shape[1] for x in t]
+        self.net.train()
+        self._apply_freeze(self.net)
+
+    def _run(self, x):
+        x = self.net.blocks[0](x)
+        out = []
+        for b in self.net.blocks[1:5]:
+            x = b(x)
+            out.append(x)
+        return out
+
+    def forward_stages(self, video):
+        return [_grid_pool_tokens(f, self.grid) for f in self._run(self.norm(video))]
+
+
 class VideoMAEBackbone(Backbone):
     """VideoMAE (Hugging Face), Kinetics-pretrained. Tokens are spatially pooled to ``grid x grid``
     per tubelet time step to keep fusion cheap."""
@@ -438,6 +474,7 @@ BACKBONES = {
     'hyper_video': HyperVideoNet,
     'timm_frames': TimmFrameBackbone,
     'tv_video': TorchvisionVideoBackbone,
+    'pv_video': PyTorchVideoBackbone,
     'videomae': VideoMAEBackbone,
 }
 

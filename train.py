@@ -176,6 +176,9 @@ def main():
     ap.add_argument('--video-root')
     ap.add_argument('--audio-root')
     ap.add_argument('--manifest', default='data/avffia.csv')
+    ap.add_argument('--protocol', default='uffia', choices=['uffia', 'kfold', 'grouped'])
+    ap.add_argument('--folds', type=int, default=5)
+    ap.add_argument('--group-level', type=int, default=1, help='dirs above the class folder that define a session')
     ap.add_argument('--test-per-class', type=int, default=700)
     ap.add_argument('--val-per-class', type=int, default=700)
     ap.add_argument('--eval-only', help='checkpoint to evaluate on the test split')
@@ -184,7 +187,9 @@ def main():
 
     if args.build_manifest:
         print('manifest written to', build_manifest(args.video_root, args.manifest, args.audio_root,
-                                                             test_per_class=args.test_per_class, val_per_class=args.val_per_class))
+                                                    test_per_class=args.test_per_class, val_per_class=args.val_per_class,
+                                                    protocol=args.protocol, folds=args.folds,
+                                                    group_level=args.group_level))
         return
 
     cfg = load_config(args.config, args.set)
@@ -207,7 +212,8 @@ def main():
         ds = {s: CachedTokenDataset(dcfg['cached_features'], s) for s in ('train', 'val', 'test')}
     else:
         ds = {s: AVFFIADataset(dcfg.get('manifest', args.manifest), s, dcfg['sample_rate'], dcfg['seconds'],
-                               dcfg['num_frames'], dcfg['size'], dcfg['crop'], cache_dir=dcfg.get('cache_dir'))
+                               dcfg['num_frames'], dcfg['size'], dcfg['crop'], cache_dir=dcfg.get('cache_dir'),
+                               cv_fold=dcfg.get('cv_fold'))
               for s in ('train', 'val', 'test')}
     nw = 0 if args.synthetic else dcfg.get('num_workers', 8)
     loaders = {s: make_loader(d, tcfg['batch_size'], s == 'train', nw) for s, d in ds.items()}

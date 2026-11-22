@@ -150,3 +150,39 @@ def test_configs_build_offline():
                        ('configs/uffia_like_baseline.yaml', ['model.audio.checkpoint=null', 'model.video.pretrained=false']),
                        ('configs/student_hyper_kd.yaml', [])]:
         build_model(load_config(path, sets)['model'])
+
+
+@pytest.mark.skipif(importlib.util.find_spec('pytorchvideo') is None, reason='pytorchvideo not installed')
+def test_pytorchvideo_x3d():
+    m = HyperAVNet(audio=HYPER_A, video={'type': 'pv_video', 'model_name': 'x3d_s', 'pretrained': False},
+                   dim=32, fusion_stages=[2, 3])
+    _check(m, WAV(), VID(s=112, t=8))
+
+
+def test_split_protocols(tmp_path):
+    import csv
+    import numpy as np
+    import soundfile as sf
+    from avffia.data import build_manifest, read_manifest
+    for day in ('d1', 'd2', 'd3', 'd4'):
+        for c in ('none', 'strong', 'medium', 'weak'):
+            vd = tmp_path / 'video_x' / day / 'cam' / c
+            ad = tmp_path / 'audio_dataset' / 'audio_dataset' / day / 'cam' / c
+            vd.mkdir(parents=True)
+            ad.mkdir(parents=True)
+            for i in range(4):
+                (vd / f'video_00_{day}{i}.mp4').touch()
+                sf.write(str(ad / f'audio_00_{day}{i}.wav'), np.zeros(10, 'float32'), 64000)
+    root = str(tmp_path)
+    for prot in ('uffia', 'kfold', 'grouped'):
+        out = build_manifest(root, str(tmp_path / f'{prot}.csv'), audio_root=str(tmp_path / 'audio_dataset'),
+                             test_per_class=1, val_per_class=1, protocol=prot, group_level=2)
+        rows = list(csv.DictReader(open(out)))
+        assert len(rows) == 64 and all(r['audio'] for r in rows)  # U-FFIA-style audio pairing
+        if prot == 'grouped':  # no session appears in two splits
+            seen = {}
+            for r in rows:
+                assert seen.setdefault(r['session'], r['split']) == r['split']
+    k = str(tmp_path / 'kfold.csv')
+    sizes = [len(read_manifest(k, s, cv_fold=2)) for s in ('train', 'val', 'test')]
+    assert sum(sizes) == 64 and sizes[2] > 0
