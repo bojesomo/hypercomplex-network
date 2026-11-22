@@ -204,5 +204,15 @@ def test_ema_after_flop_count_with_hooked_backbone():
     m = HyperAVNet(audio=HYPER_A, video={'type': 'tv_video', 'model_name': 's3d', 'pretrained': False},
                    dim=32, fusion_stages=[3])
     count_flops(m, WAV(1), VID(1, s=112, t=16))
-    EMA(m, 0.999)
-    assert not m.video._feats
+    ema = EMA(m, 0.999)
+    # the EMA copy must compute its own features: identical weights give identical outputs,
+    # and a weight change in the copy must change its output
+    m.eval()
+    wav, vid = WAV(1), VID(1, s=112, t=16)
+    with torch.no_grad():
+        a = m(wav, vid)['logits']
+        b = ema.model(wav, vid)['logits']
+        assert torch.allclose(a, b, atol=1e-5)
+        for p in ema.model.video.parameters():
+            p.add_(0.05 * torch.randn_like(p))
+        assert not torch.allclose(ema.model(wav, vid)['logits'], a, atol=1e-5)

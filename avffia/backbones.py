@@ -478,11 +478,12 @@ class TorchvisionVideoBackbone(Backbone):
     S3D is the video backbone of the U-FFIA reference model.
     """
 
+    # stage taps: residual layers for the ResNet-style models, indices into ``features`` for S3D
     _STAGES = {
         'r2plus1d_18': ['layer1', 'layer2', 'layer3', 'layer4'],
         'r3d_18': ['layer1', 'layer2', 'layer3', 'layer4'],
         'mc3_18': ['layer1', 'layer2', 'layer3', 'layer4'],
-        's3d': ['features.3', 'features.6', 'features.12', 'features.15'],
+        's3d': [3, 6, 12, 15],
     }
 
     def __init__(self, model_name='r2plus1d_18', pretrained=True, grid=2, size=None, **kw):
@@ -492,31 +493,34 @@ class TorchvisionVideoBackbone(Backbone):
         self.norm = VideoNormalize(KINETICS_MEAN, KINETICS_STD, size=tuple(size) if size else None)
         self.stage_names = self._STAGES[model_name]
         self.grid = grid
-        self._feats = {}
-        modules = dict(self.net.named_modules())
-        for n in self.stage_names:
-            modules[n].register_forward_hook(lambda m, i, o, n=n: self._feats.__setitem__(n, o))
+        # Stage outputs are collected explicitly in _run (no forward hooks): hooks are closures
+        # over the original module, so a deepcopy (e.g. the EMA model) would read stale features.
         with torch.no_grad():
             self.net.eval()
-            self._run(torch.zeros(1, 3, 16, 112, 112))
-            self.stage_dims = [self._feats[n].shape[1] for n in self.stage_names]
-            self._feats.clear()
+            self.stage_dims = [f.shape[1] for f in self._run(torch.zeros(1, 3, 16, 112, 112))]
         self.net.train()
         self._apply_freeze(self.net)
 
-    def _run(self, x):  # run the trunk only (skip pooling and classifier)
-        n = self.net
+    def _run(self, x):
+        """Run the trunk only (no pooling or classifier) and return the four stage outputs."""
+        n, out = self.net, []
         if hasattr(n, 'layer4'):
-            n.layer4(n.layer3(n.layer2(n.layer1(n.stem(x)))))
+            x = n.stem(x)
+            for name in self.stage_names:
+                x = getattr(n, name)(x)
+                out.append(x)
         else:
-            n.features(x)
+            taps = set(self.stage_names)
+            for i, layer in enumerate(n.features):
+                x = layer(x)
+                if i in taps:
+                    out.append(x)
+                if i >= max(taps):
+                    break
+        return out
 
     def forward_stages(self, video):
-        self._feats.clear()
-        self._run(self.norm(video))
-        out = [_grid_pool_tokens(self._feats[n], self.grid) for n in self.stage_names]
-        self._feats.clear()  # do not keep activations alive (memory, and breaks deepcopy for EMA)
-        return out
+        return [_grid_pool_tokens(f, self.grid) for f in self._run(self.norm(video))]
 
 
 class PyTorchVideoBackbone(Backbone):
