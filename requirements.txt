@@ -10,3 +10,5 @@ pyyaml
 av                   # video/audio decoding (decord is used instead if installed)
 soundfile
 pytest
+fvcore               # MoViNet config (vendored MoViNet-pytorch)
+pytorchvideo         # X3D teacher (optional)

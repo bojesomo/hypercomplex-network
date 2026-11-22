@@ -1,0 +1,29 @@
+# HMKD's teacher pair (Du, Tong, Hao et al., Information Processing in Agriculture 2026: 97.47% on
+# AV-FFIA), with the same HCF fusion recipe as our other teachers:
+#   audio  EfficientAT mn10_as (AudioSet, 47.1 mAP; transformer-to-CNN KD), 32 kHz / 128 mel
+#   video  MoViNet-A0 Base (Kinetics-600), 172x172, raw [0,1] RGB
+# Weights: bash scripts/download_pretrained.sh  (or leave checkpoint: null to fetch the URL)
+_base_: base.yaml
+name: teacher_efficientat_movinet_a0
+data: {size: 256, crop: 224, num_frames: 16}
+train: {epochs: 30, batch_size: 16, lr: 3.0e-4, backbone_lr_mult: 0.3}
+model:
+  num_classes: 4
+  dim: 256
+  n_divs: 4
+  fusion: hcf
+  fusion_algebra: 4
+  fusion_stages: [0, 1, 2, 3]
+  num_bottleneck: 16
+  num_heads: 4
+  audio:
+    type: efficientat
+    model_name: mn10_as
+    checkpoint: pretrained/mn10_as_mAP_471.pt
+    in_sample_rate: 64000
+  video:
+    type: movinet
+    model_name: A0
+    checkpoint: pretrained/modelA0_statedict_v3
+    size: [172, 172]
+    grid: 2

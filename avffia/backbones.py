@@ -258,6 +258,121 @@ class PannsBackbone(Backbone):
         return out
 
 
+def load_weights(src: str):
+    """State dict from a local path or an http(s) URL (cached in ``~/.cache/torch/hub``)."""
+    if src.startswith(('http://', 'https://')):
+        sd = torch.hub.load_state_dict_from_url(src, map_location='cpu')
+    else:
+        sd = torch.load(src, map_location='cpu', weights_only=True)
+    return sd.get('model', sd) if isinstance(sd, dict) else sd
+
+
+EFFICIENTAT_URL = 'https://github.com/fschmid56/EfficientAT/releases/download/v0.0.1/'
+EFFICIENTAT_CKPT = {'mn04_as': 'mn04_as_mAP_432.pt', 'mn05_as': 'mn05_as_mAP_443.pt',
+                    'mn10_as': 'mn10_as_mAP_471.pt', 'mn20_as': 'mn20_as_mAP_478.pt',
+                    'mn30_as': 'mn30_as_mAP_482.pt', 'mn40_as': 'mn40_as_mAP_484.pt'}
+
+
+class EfficientATBackbone(Backbone):
+    """EfficientAT MobileNetV3 (Schmid, Koutini, Widmer, ICASSP 2023): AudioSet CNNs distilled from
+    a transformer ensemble (mn10_as: 4.88M params, 47.1 mAP). It is the audio teacher of HMKD
+    (Information Processing in Agriculture 2026), 97.47% on AV-FFIA.
+
+    Uses EfficientAT's own pre-processing: 32 kHz, 128 mel bins, 25 ms window, 10 ms hop, and its
+    fixed normalisation. Input is resampled from ``in_sample_rate``. Stage tokens come from the
+    ends of the four resolution stages (C1-C3 and the final 1x1 conv), pooled over frequency.
+    ``checkpoint``: a path, a URL, or None (default: the official release URL for ``model_name``).
+    """
+
+    # indices in net.features: 0 = stem, 1..15 = blocks, 16 = last conv. Stage ends: after
+    # blocks 2 (C1), 5 (C2), 11 (C3) and the last conv (C4 + 1x1).
+    _STAGE_ENDS = (3, 6, 12, 16)
+
+    def __init__(self, model_name='mn10_as', checkpoint: Optional[str] = None, pretrained: bool = True,
+                 in_sample_rate=64000, freqm=24, timem=40, **kw):
+        super().__init__(**kw)
+        import torchaudio
+        from .third_party.efficientat.model import get_model
+        from .third_party.efficientat.preprocess import AugmentMelSTFT
+        width = int(model_name[2:4]) / 10
+        self.resample = torchaudio.transforms.Resample(in_sample_rate, 32000) if in_sample_rate != 32000 else nn.Identity()
+        self.mel = AugmentMelSTFT(n_mels=128, sr=32000, win_length=800, hopsize=320, n_fft=1024,
+                                  freqm=freqm, timem=timem, fmin=0.0, fmax=None,
+                                  fmin_aug_range=10, fmax_aug_range=2000)
+        self.net = get_model(num_classes=527, pretrained_name=None, width_mult=width, head_type='mlp',
+                             se_dims='c', input_dim_f=128, input_dim_t=200)
+        if pretrained:
+            src = checkpoint or EFFICIENTAT_URL + EFFICIENTAT_CKPT[model_name]
+            missing, unexpected = self.net.load_state_dict(load_weights(src), strict=False)
+            if missing:
+                print(f'EfficientATBackbone: {len(missing)} missing keys, e.g. {missing[:3]}')
+        self.net.classifier = nn.Identity()
+        with torch.no_grad():
+            self.net.eval()
+            self.stage_dims = [f.shape[1] for f in self._run(torch.zeros(1, 1, 128, 200))]
+        self.net.train()
+        self._apply_freeze(self.net)
+
+    def _run(self, x):
+        out = []
+        for i, layer in enumerate(self.net.features):
+            x = layer(x)
+            if i in self._STAGE_ENDS:
+                out.append(x)
+        return out
+
+    def forward_stages(self, wav):
+        with torch.autocast(device_type=wav.device.type, enabled=False):
+            x = self.mel(self.resample(wav.float())).unsqueeze(1)  # (B, 1, 128, T)
+        return [(f.mean(2) + f.amax(2)).transpose(1, 2) for f in self._run(x)]  # pool frequency
+
+
+class MoViNetBackbone(Backbone):
+    """MoViNet (Kondratyuk et al., CVPR 2021), the non-causal "Base" model with Kinetics-600
+    weights from the MoViNet-pytorch port. A0 is the video teacher of HMKD (97.47% on AV-FFIA):
+    3.1M params at 172x172 in the original paper. Input is [0, 1] RGB (no mean/std), resized to
+    ``size`` (default 172). Stage tokens come from the last four block groups.
+    ``checkpoint``: a path, a URL, or None (default: the port's ``model{A0..}_statedict_v3`` on raw GitHub).
+    """
+
+    def __init__(self, model_name='A0', checkpoint: Optional[str] = None, pretrained: bool = True, grid=2,
+                 size=(172, 172), **kw):
+        super().__init__(**kw)
+        from .third_party.movinets.config import _C
+        from .third_party.movinets.models import MoViNet
+        cfg = getattr(_C.MODEL, f'MoViNet{model_name}')
+        # the architecture used by the pretrained weights: 3D convs, TF-like padding, 600 classes
+        self.net = MoViNet(cfg, causal=False, pretrained=False, num_classes=600, conv_type='3d', tf_like=True)
+        if pretrained:
+            url = f'https://raw.githubusercontent.com/Atze00/MoViNet-pytorch/main/weights/model{model_name}_statedict_v3'
+            self.net.load_state_dict(load_weights(checkpoint or url))
+        self.net.classifier = nn.Identity()
+        self.net.conv7 = nn.Identity()  # not used by the stage taps (would get no gradients)
+        self.norm = VideoNormalize((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), size=tuple(size) if size else None)
+        self.grid = grid
+        names = [n for n, _ in self.net.blocks.named_children()]
+        groups = sorted({n.split('_')[0] for n in names}, key=lambda g: int(g[1:]))
+        self.group_ends = [max((n for n in names if n.startswith(g + '_')), key=lambda n: int(n.split('_l')[1]))
+                           for g in groups[-4:]]
+        with torch.no_grad():
+            self.net.eval()
+            self.stage_dims = [f.shape[1] for f in self._run(torch.zeros(1, 3, 8, 64, 64))]
+        self.net.train()
+        self._apply_freeze(self.net)
+
+    def _run(self, x):
+        x = self.net.conv1(x)
+        out = []
+        for name, blk in self.net.blocks.named_children():
+            x = blk(x)
+            if name in self.group_ends:
+                out.append(x)
+        return out
+
+    def forward_stages(self, video):
+        return [_grid_pool_tokens(f, self.grid) for f in self._run(self.norm(video))]
+
+
 class ASTBackbone(Backbone):
     """Audio Spectrogram Transformer (Hugging Face ``transformers``), AudioSet-pretrained.
 
@@ -470,11 +585,13 @@ BACKBONES = {
     'hyper_audio': HyperAudioNet,
     'timm_audio': TimmAudioBackbone,
     'panns': PannsBackbone,
+    'efficientat': EfficientATBackbone,
     'ast': ASTBackbone,
     'hyper_video': HyperVideoNet,
     'timm_frames': TimmFrameBackbone,
     'tv_video': TorchvisionVideoBackbone,
     'pv_video': PyTorchVideoBackbone,
+    'movinet': MoViNetBackbone,
     'videomae': VideoMAEBackbone,
 }
 

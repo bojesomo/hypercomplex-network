@@ -48,6 +48,7 @@ SOTA (0.917, cross-attention) at 2.1M params / 1.2 GMACs. See [docs/AVFFIA_DESIG
 
 ```bash
 pip install -r requirements.txt
+bash scripts/download_pretrained.sh --cache                 # pretrained checkpoints (docs/PRETRAINED_MODELS.md)
 python -m pytest -q tests                                     # offline smoke tests
 python train.py --build-manifest --video-root /data/AV-FFIA --audio-root /data/AV-FFIA_audio
 python train.py -c configs/teacher_panns_s3d.yaml             # 1) teacher (PANNs CNN10 + S3D)

@@ -41,8 +41,9 @@ TEACHERS = {
     'T9_cnn10_videomae': ('configs/teacher_panns_s3d.yaml',
                           {'video': {'type': 'videomae', 'model_name': 'MCG-NJU/videomae-base-finetuned-kinetics',
                                      'layers': [3, 6, 9, 12], 'grid': 7}}),
-    # Not yet implemented (needs external code): HMKD's EfficientAT (mn10_as) + MoViNet-A0 teacher,
-    # BEATs (attentive multi-layer pooling), V-JEPA 2 / VideoMAE V2, CAV-MAE (joint AV).
+    # HMKD's teacher pair (97.47% on AV-FFIA in HMKD): EfficientAT mn10_as + MoViNet-A0 (vendored code)
+    'T10_efficientat_movinet_a0': ('configs/teacher_efficientat_movinet.yaml', {}),
+    # Not yet implemented: BEATs (attentive multi-layer pooling), V-JEPA 2 / VideoMAE V2, CAV-MAE (joint AV).
 }
 
 

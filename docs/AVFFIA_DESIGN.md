@@ -68,7 +68,8 @@ grouped` in `train.py --build-manifest`, and `data.cv_fold` for k-fold.
 
 **Teacher ablation:** run `scripts/run_teacher_ablation.sh` (T1–T9, see
 `scripts/make_teacher_configs.py`): CNN10 / CNN14 / EfficientNet-mel / AST × S3D / R(2+1)D /
-ConvNeXt-frames / X3D-M / VideoMAE. Each teacher is trained, then a student is distilled from
+ConvNeXt-frames / X3D-M / VideoMAE, plus T10 = HMKD's EfficientAT mn10_as + MoViNet-A0
+(5.1M params, 1.05 GMACs). Each teacher is trained, then a student is distilled from
 it, plus a no-KD reference.
 
 What this implies for the design:
@@ -223,3 +224,8 @@ models are small.
 | Teacher: PANNs CNN10 + S3D + HCF | AV | 15.874 | 21.483 | | |
 | **HyperAVNet-Q (KD)** | AV | 2.137 | 1.180 | | |
 | HyperAVNet-O (KD) | AV | 1.235 | 1.180 | | |
+
+## Pretrained model downloads
+
+All links, and how each was verified, are in [PRETRAINED_MODELS.md](PRETRAINED_MODELS.md).
+Run `bash scripts/download_pretrained.sh --cache`.

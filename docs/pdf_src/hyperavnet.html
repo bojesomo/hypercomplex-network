@@ -110,6 +110,7 @@ Claims of beating the state of the art must therefore wait for the experiments i
   <div><span>9</span>Complexity and deployment</div>
   <div><span>10</span>Guide for writing the paper</div>
   <div><span>A</span>Reproduction commands and code map</div>
+  <div><span>C</span>Pretrained model downloads</div>
   <div><span>B</span>References to cite</div>
 </div>
 
@@ -745,7 +746,7 @@ This mode suits large sweeps (e.g. the full fusion-depth × algebra grid) and is
 
 <h3>8.1&nbsp;&nbsp;Teacher ablation</h3>
 <p>Every teacher uses the same HCF fusion network, data and recipe; only the pretrained backbone pair changes. Each teacher is trained, then a student is distilled from it (<span class="mono">scripts/run_teacher_ablation.sh</span>). Report the teacher's AV, audio-only and video-only accuracy, the student's accuracy, and the teacher–student gap. Costs below were measured at 16 frames, 224², 2&nbsp;s audio.</p>
-<p class="tcap"><b>Table 4b.</b> Teacher grid (measured params and GMACs of each full teacher, including the fusion network).</p>
+<p class="tcap"><b>Table 4b.</b> Teacher grid (measured params and GMACs of each full teacher, including the fusion network). Download links for every checkpoint are in Appendix C.</p>
 <table>
   <thead><tr><th>ID</th><th>Audio teacher</th><th>Video teacher</th><th class="num">Params (M)</th><th class="num">GMACs</th><th>Evidence / purpose</th></tr></thead>
   <tbody>
@@ -758,7 +759,8 @@ This mode suits large sweeps (e.g. the full fusion-depth × algebra grid) and is
     <tr><td>T7</td><td>PANNs CNN10</td><td>X3D-M (pytorchvideo)</td><td class="num">9.4</td><td class="num">8.2</td><td>best classic 3D CNN on Animal Kingdom; cheapest teacher</td></tr>
     <tr><td>T8</td><td>AST</td><td>S3D</td><td class="num">96.8</td><td class="num">39.3</td><td>isolates the audio transformer</td></tr>
     <tr><td>T9</td><td>PANNs CNN10</td><td>VideoMAE-B</td><td class="num">93.8</td><td class="num">184.9</td><td>isolates the video transformer (VideoMAE 86.5% in ACAF-Net)</td></tr>
-    <tr><td>—</td><td colspan="2">Planned: EfficientAT mn10 + MoViNet-A0 (HMKD's teacher); BEATs with attentive multi-layer pooling; V-JEPA 2 / VideoMAE V2; CAV-MAE (joint AV)</td><td class="num"></td><td class="num"></td><td>needs external code</td></tr>
+    <tr><td>T10</td><td>EfficientAT mn10_as (AudioSet, KD from transformers)</td><td>MoViNet-A0 Base (K600) @ 172²</td><td class="num">5.1</td><td class="num">1.05</td><td>HMKD's teacher pair (97.47% in HMKD). Smaller in compute than the student: does KD need a large teacher?</td></tr>
+    <tr><td>—</td><td colspan="2">Planned: BEATs with attentive multi-layer pooling; V-JEPA 2 / VideoMAE V2; CAV-MAE (joint AV)</td><td class="num"></td><td class="num"></td><td>needs further wrappers</td></tr>
   </tbody>
 </table>
 
@@ -879,10 +881,11 @@ To reduce FLOPs further, shrink <span class="mono">dims</span>, <span class="mon
 <!-- ====================================================================== A -->
 <h2>Appendix A&nbsp;&nbsp;Reproduction commands and code map</h2>
 <pre>pip install -r requirements.txt
-python -m pytest -q tests                                    # 61 offline tests
+python -m pytest -q tests                                    # 62 offline tests
 python train.py --build-manifest --video-root /data/AV-FFIA --audio-root /data/AV-FFIA/audio_dataset \
         --protocol uffia            # or: kfold | grouped --group-level 1
-bash scripts/run_teacher_ablation.sh                         # teacher grid T1-T9 + distilled students
+bash scripts/download_pretrained.sh --cache                  # pretrained checkpoints (Appendix C)
+bash scripts/run_teacher_ablation.sh                         # teacher grid T1-T10 + distilled students
 python train.py -c configs/teacher_panns_s3d.yaml            # stage 1: teacher (PANNs CNN10 + S3D)
 python train.py -c configs/student_hyper_kd.yaml             # stage 2: distilled student
 python train.py -c configs/student_hyper.yaml --set model.fusion_stages=[2,3] --set name=fs23
@@ -900,9 +903,31 @@ python extract_features.py -c configs/frozen_timm_side.yaml --out feats/timm --v
     <tr><td class="mono">avffia/backbones.py</td><td>Students and the PANNs, torchvision (S3D), timm, AST and VideoMAE wrappers (shared stage-token interface)</td></tr>
     <tr><td class="mono">avffia/frontends.py</td><td>LogMel + SpecAugment + SimPF, Kaldi fbank (AST), video normalisation</td></tr>
     <tr><td class="mono">avffia/losses.py</td><td>AVLoss (CE + auxiliary), DistillLoss (KD + feature + relation; Hinton or U-FFIA style)</td></tr>
+    <tr><td class="mono">avffia/third_party/</td><td>Vendored MIT code: EfficientAT MobileNetV3 (fschmid56/EfficientAT) and MoViNet (Atze00/MoViNet-pytorch)</td></tr>
     <tr><td class="mono">avffia/corruptions.py</td><td>Robustness protocol: audio noise at SNR, video darkness and Gaussian noise</td></tr>
     <tr><td class="mono">avffia/data.py</td><td>U-FFIA-compatible manifest and split, decoding (decord or PyAV), clip cache, augmentation</td></tr>
     <tr><td class="mono">train.py, extract_features.py</td><td>Training, evaluation and distillation; cached-feature extraction</td></tr>
+  </tbody>
+</table>
+
+<h2>Appendix C&nbsp;&nbsp;Pretrained model downloads</h2>
+<p><span class="mono">bash scripts/download_pretrained.sh</span> fetches the file checkpoints into <span class="mono">pretrained/</span>; <span class="mono">--cache</span> also pre-fetches the library-managed ones. The full list is in <span class="mono">docs/PRETRAINED_MODELS.md</span>.
+"Verified" states how each link was checked: <i>downloaded</i> (fetched and loaded into our wrapper) or <i>source</i> (the URL is taken from the installed library's code).</p>
+<table style="table-layout:fixed">
+  <thead><tr><th style="width:24%">Model</th><th style="width:11%">Teachers</th><th style="width:53%">Download</th><th style="width:12%">Verified</th></tr></thead>
+  <tbody>
+    <tr><td>PANNs CNN10 (AudioSet)</td><td>T1, T3, T4, T7, T9</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://zenodo.org/record/3987831/files/Cnn10_mAP%3D0.380.pth?download=1</td><td>source (pattern)</td></tr>
+    <tr><td>PANNs CNN14 (AudioSet)</td><td>T2</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1</td><td>source</td></tr>
+    <tr><td>EfficientAT mn10_as (AudioSet)</td><td>T10</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://github.com/fschmid56/EfficientAT/releases/download/v0.0.1/mn10_as_mAP_471.pt</td><td>downloaded</td></tr>
+    <tr><td>MoViNet-A0 Base (Kinetics-600)</td><td>T10</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://raw.githubusercontent.com/Atze00/MoViNet-pytorch/main/weights/modelA0_statedict_v3</td><td>downloaded</td></tr>
+    <tr><td>S3D (Kinetics-400, torchvision)</td><td>T1, T2, T5, T8</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://download.pytorch.org/models/s3d-d76dad2f.pth</td><td>source</td></tr>
+    <tr><td>R(2+1)D-18 (Kinetics-400, torchvision)</td><td>T3</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://download.pytorch.org/models/r2plus1d_18-91a641e6.pth</td><td>source</td></tr>
+    <tr><td>X3D-M (Kinetics-400, pytorchvideo)</td><td>T7</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://dl.fbaipublicfiles.com/pytorchvideo/model_zoo/kinetics/X3D_M.pyth</td><td>source</td></tr>
+    <tr><td>AST (AudioSet, HF)</td><td>T6, T8</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593</td><td>model id</td></tr>
+    <tr><td>VideoMAE-B (Kinetics-400, HF)</td><td>T6, T9</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://huggingface.co/MCG-NJU/videomae-base-finetuned-kinetics</td><td>model id</td></tr>
+    <tr><td>ConvNeXt-T in12k→in1k (timm)</td><td>T4</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://huggingface.co/timm/convnext_tiny.in12k_ft_in1k</td><td>source</td></tr>
+    <tr><td>EfficientNet-B0 (timm)</td><td>T5</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://huggingface.co/timm/efficientnet_b0.ra_in1k</td><td>source</td></tr>
+    <tr><td>AV-FFIA dataset (Zenodo, part 1)</td><td>—</td><td class="mono" style="font-size:7.2pt;word-break:break-all">https://zenodo.org/records/11059975 (further parts: 11060195, 11060370, 14619756)</td><td>review</td></tr>
   </tbody>
 </table>
 

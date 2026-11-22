@@ -186,3 +186,12 @@ def test_split_protocols(tmp_path):
     k = str(tmp_path / 'kfold.csv')
     sizes = [len(read_manifest(k, s, cv_fold=2)) for s in ('train', 'val', 'test')]
     assert sum(sizes) == 64 and sizes[2] > 0
+
+
+@pytest.mark.skipif(importlib.util.find_spec('fvcore') is None, reason='fvcore not installed')
+def test_efficientat_and_movinet_random_init():
+    m = HyperAVNet(audio={'type': 'efficientat', 'model_name': 'mn04_as', 'pretrained': False},
+                   video={'type': 'movinet', 'model_name': 'A0', 'pretrained': False, 'size': [64, 64]},
+                   dim=32, fusion_stages=[1, 2, 3])
+    assert m.audio.stage_dims == [24, 40, 112, 960] or len(m.audio.stage_dims) == 4
+    _check(m, WAV(), VID(s=64, t=8))
