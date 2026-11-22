@@ -500,6 +500,7 @@ class TorchvisionVideoBackbone(Backbone):
             self.net.eval()
             self._run(torch.zeros(1, 3, 16, 112, 112))
             self.stage_dims = [self._feats[n].shape[1] for n in self.stage_names]
+            self._feats.clear()
         self.net.train()
         self._apply_freeze(self.net)
 
@@ -513,7 +514,9 @@ class TorchvisionVideoBackbone(Backbone):
     def forward_stages(self, video):
         self._feats.clear()
         self._run(self.norm(video))
-        return [_grid_pool_tokens(self._feats[n], self.grid) for n in self.stage_names]
+        out = [_grid_pool_tokens(self._feats[n], self.grid) for n in self.stage_names]
+        self._feats.clear()  # do not keep activations alive (memory, and breaks deepcopy for EMA)
+        return out
 
 
 class PyTorchVideoBackbone(Backbone):

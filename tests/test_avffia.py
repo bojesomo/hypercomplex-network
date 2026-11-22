@@ -195,3 +195,14 @@ def test_efficientat_and_movinet_random_init():
                    dim=32, fusion_stages=[1, 2, 3])
     assert m.audio.stage_dims == [24, 40, 112, 960] or len(m.audio.stage_dims) == 4
     _check(m, WAV(), VID(s=64, t=8))
+
+
+def test_ema_after_flop_count_with_hooked_backbone():
+    """Regression: tv_video stored hook activations with grad history, which broke the EMA deepcopy."""
+    from avffia.metrics import count_flops
+    from train import EMA
+    m = HyperAVNet(audio=HYPER_A, video={'type': 'tv_video', 'model_name': 's3d', 'pretrained': False},
+                   dim=32, fusion_stages=[3])
+    count_flops(m, WAV(1), VID(1, s=112, t=16))
+    EMA(m, 0.999)
+    assert not m.video._feats
