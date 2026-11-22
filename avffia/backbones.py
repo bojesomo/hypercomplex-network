@@ -220,7 +220,7 @@ class PannsBackbone(Backbone):
     _WIDTHS = {'cnn10': (64, 128, 256, 512), 'cnn14': (64, 128, 256, 512, 1024, 2048)}
 
     def __init__(self, model_name='cnn10', checkpoint: Optional[str] = None, frontend: Optional[dict] = None,
-                 dropout=0.2, **kw):
+                 dropout=0.2, pretrained: bool = True, **kw):  # pretrained weights come from `checkpoint`
         super().__init__(**kw)
         fe = {'sample_rate': 64000, 'n_fft': 2048, 'hop': 512, 'n_mels': 64, 'fmin': 50.0, **(frontend or {})}
         fe['normalize'] = None  # PANNs normalises with its own bn0
