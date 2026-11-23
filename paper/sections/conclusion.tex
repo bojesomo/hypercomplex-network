@@ -1,0 +1,45 @@
+% ============================================================================
+%  Conclusion -- \input{sections/conclusion}
+%  Sentences tied to results use \res* macros; the \todo notes mark findings to state
+%  (or delete) once Tables in sections/results.tex are filled.
+% ============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented HyperAVNet, a hypercomplex audio-visual network for fish feeding intensity assessment.
+Hamilton-product weight sharing runs through every parameterised part of the model: the backbones,
+attention, fusion, feedback and heads. Fusion is expressed as an algebraic operation: hypercomplex
+component fusion treats the audio view, the video view and their agreement as the components of one
+quaternion or octonion, and mixes them with a single shared set of weights, at a parameter cost that
+does not grow with the number of interaction terms. Because the fusion blocks can be placed at any
+depth, with zero-initialised feedback into both streams, the question of \emph{where} to fuse becomes a
+controlled experiment rather than a design assumption.
+
+On AV-FFIA, the distilled quaternion model reaches \resOurAcc\% accuracy (macro-F1 \resOurFone\%) with
+\resOurParams\,M parameters and \resOurGMACs\,GMACs per two-second clip. That is an order of
+magnitude fewer parameters and operations than the U-FFIA models. \todo{State the position relative to
+DynaGate-AV and HMMF-Net under their protocols.} The ablations show that
+\todo{(i) the best fusion set was $\mathcal{S}=\resBestDepth$ (late fusion: \resLateAcc\%; with
+feedback: \resProgAcc\%; without feedback: \resNoFeedbackAcc\%);}
+\todo{(ii) the quaternion and octonion networks keep the accuracy of the real network (\resRealAcc\%)
+with $3.7\times$ and $6.4\times$ fewer parameters (\resQuatAcc\% and \resOctAcc\%), or say where they
+fall short;}
+\todo{(iii) HCF compares with the attention bottleneck as \resHCFAcc\% vs.\ \resMBTAcc\%;}
+and \todo{(iv) distillation changes the student's accuracy by \resKDGain\ points, with the teacher
+ablation showing whether teacher strength or teacher type matters more.}
+On the session-disjoint split, accuracy is \resGroupedAcc\%, against \resOfficialAcc\% on the official
+random split. \todo{If the gap is substantial, conclude that clip-level splits overestimate
+generalisation on AV-FFIA, and recommend session-disjoint evaluation as the default for future work.}
+
+\paragraph{Limitations and future work.}
+The hypercomplex structure reduces stored parameters, memory and transmission size, but not
+multiply--accumulate operations; further compute savings would require structured sparsity or
+algebra-aware kernels. AV-FFIA covers one species in one controlled tank. Validation on farm data, such
+as the turbid, foamy tilapia tanks in which U-FFIA was field-tested~\cite{cui2024uffia}, and on other
+species is the most important next step. Three further directions follow naturally from this design:
+a streaming, causal variant for continuous monitoring and closed-loop feeding control; hypercomplex
+teachers and self-supervised audio-visual pretraining on unlabelled farm recordings; and extending HCF
+to additional sensors (e.g.\ sonar or water-quality signals), which only requires a larger algebra
+(octonion or sedenion components) rather than a wider fusion layer. To make comparisons on AV-FFIA
+reproducible, we release our code, the split files for all three protocols with their hashes, and the
+trained models.

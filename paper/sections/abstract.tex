@@ -1,0 +1,24 @@
+% ============================================================================
+%  Abstract -- text only, so it can go inside any template's abstract environment:
+%    \begin{abstract}\input{sections/abstract}\end{abstract}
+%  \res* numbers come from tables/macros.tex (scripts/make_paper_assets.py).
+%  Rephrase the \todo sentence once the results are in. Target length: 200-250 words.
+% ============================================================================
+Fish feeding intensity assessment (FFIA) lets feeding machines respond to the appetite of the fish.
+Audio and video complement each other here: the camera sees aggregation and surface agitation, while a
+hydrophone hears feeding through darkness, reflections and turbidity. However, existing audio-visual
+models are large, fuse the modalities in ad hoc ways at a single depth, and are evaluated under
+incompatible protocols. We propose HyperAVNet, a parameter-efficient audio-visual network built from
+hypercomplex layers, whose Hamilton-product weight sharing divides the parameters of every projection
+by the algebra's dimension. Its central component, hypercomplex component fusion (HCF), encodes the
+audio view, the video view and their multiplicative agreement as the components of a single quaternion
+or octonion and mixes them with one Hamilton product. HCF blocks can be attached at any depth of the
+two backbones, with zero-initialised cross-modal feedback, which enables a controlled study from late
+to early fusion. A compact student is trained with logit-, embedding- and relation-level distillation
+from pretrained audio and video teachers, ten of which we compare. On the AV-FFIA dataset, HyperAVNet
+reaches \resOurAcc\% accuracy with \resOurParams\,M parameters and \resOurGMACs\,GMACs per clip,
+$10\times$ fewer parameters and $13\times$ fewer operations than U-FFIA. \todo{One sentence placing this
+against the strongest comparable result (DynaGate-AV 96.5\% on the official split; HMMF-Net 96.8\% under
+5-fold CV) and stating the main ablation finding.} We also introduce a session-disjoint split, on which
+HyperAVNet reaches \resGroupedAcc\%, and evaluate robustness to acoustic and visual noise and to missing
+modalities. Code, splits and models will be released.

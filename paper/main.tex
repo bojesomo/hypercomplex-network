@@ -1,7 +1,9 @@
-% Standalone build of the HyperAVNet introduction, related work, methodology and results sections.
+% Standalone build of the HyperAVNet paper body: abstract, introduction, related work, methodology,
+% set-up, results and conclusion.
 % To use in a full paper: copy sections/, figures/, tables/ and refs.bib, then
+%   \begin{abstract}\input{sections/abstract}\end{abstract}
 %   \input{sections/introduction} \input{sections/related} \input{sections/method}
-%   \input{sections/experiments} \input{sections/results}
+%   \input{sections/experiments} \input{sections/results} \input{sections/conclusion}
 % and add the packages below. Set \showtodosfalse to hide the review notes.
 \documentclass[10pt,twocolumn]{article}
 \usepackage[a4paper,margin=18mm,columnsep=6mm]{geometry}
@@ -22,18 +24,23 @@
 \IfFileExists{tables/macros.tex}{\input{tables/macros.tex}}{}
 
 \title{HyperAVNet: Parameter-Efficient Hypercomplex Audio-Visual Fusion\\for Fish Feeding Intensity Assessment\\[4pt]
-\large Introduction, Related Work, Methodology, Experimental Set-up and Results}
+\large Draft manuscript}
 \author{Alabi Bojesomo \and \textit{co-authors}}
 \date{\textit{Draft} --- \today}
 
 \begin{document}
 \maketitle
 
+\begin{abstract}
+\input{sections/abstract}
+\end{abstract}
+
 \input{sections/introduction}
 \input{sections/related}
 \input{sections/method}
 \input{sections/experiments}
 \input{sections/results}
+\input{sections/conclusion}
 
 \bibliographystyle{unsrtnat}
 \bibliography{refs}
