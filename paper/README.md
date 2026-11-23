@@ -1,9 +1,11 @@
-# Paper sections: methodology, experimental set-up, results
+# Paper sections: introduction, related work, methodology, set-up, results
 
 `main.tex` builds a standalone draft. Each section in `sections/` can be `\input` into a full
 paper.
 
 ```
+sections/introduction.tex  Introduction (motivation, three open problems, contributions)
+sections/related.tex       Related work (FFIA, AV fusion, hypercomplex networks, efficient models and KD)
 sections/method.tex        Methodology (Eqs. 1-18, Figs. 1-5)
 sections/experiments.tex   Experimental set-up (data, three protocols, teachers, baselines, metrics)
 sections/results.tex       Results (tables and figures, with \todo notes on claims to confirm)

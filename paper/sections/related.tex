@@ -1,0 +1,67 @@
+% ============================================================================
+%  Related work -- \input{sections/related}
+% ============================================================================
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Fish feeding intensity assessment.}
+Early FFIA relied on observers or on hand-crafted image analysis, such as background segmentation and
+the tracking of collective behaviour~\cite{zhao2017appetite}. These methods were sensitive to water
+surface fluctuations and computationally heavy. Deep learning moved the field to convolutional
+classifiers of feeding images~\cite{zhou2019ffia}, with later refinements such as dual attention on
+EfficientNet-B2~\cite{yang2021effnetb2} and multi-scale fusion on MobileNetV3~\cite{zhang2023msif}.
+Single images miss the dynamics of feeding, so video methods convert RGB sequences to optical flow and
+classify them with 3-D CNNs~\cite{ubina2021ffia}, at a higher computational cost. Acoustic FFIA was
+introduced with the AFFIA3K dataset, where log-mel spectrograms are classified by a CNN~\cite{cui2022affia3k}.
+Surveys of fish behaviour analysis~\cite{an2021behaviour,yang2021smartfish} describe both modalities as
+complementary but individually fragile. The audio-visual setting was established by AV-FFIA and
+U-FFIA~\cite{cui2024uffia}. That work benchmarked audio models (PANNs~\cite{kong2020panns}, AST~\cite{gong2021ast}),
+video models (I3D, S3D~\cite{xie2018s3d}, ViViT), and fusion by self-attention, cross-attention and
+attention bottlenecks. It then proposed a unified mixed-modality model with modality dropout and
+distillation from CNN10 and S3D teachers. Later works raised the reported AV accuracy with
+cross-attention fusion~\cite{acafnet2025}, dynamic gating between experts~\cite{dynagate2026},
+hierarchical multimodal fusion~\cite{hmmfnet2026}, heterogeneous distillation~\cite{hmkd2026} and
+lightweight dual-modal designs~\cite{ldmf2026}. Each of them uses its own protocol: the official split,
+cross-validation or a filtered subset. We report results under several protocols, including a
+session-disjoint split, so that comparisons with these works are explicit.
+
+\paragraph{Audio-visual fusion.}
+Multimodal fusion is commonly divided into early, late and intermediate fusion~\cite{baltrusaitis2019mmml}.
+Transformer fusion concatenates the token sequences, or uses cross-modal attention to let one modality
+query the other. Attention bottlenecks restrict cross-modal flow to a few shared tokens~\cite{nagrani2021mbt},
+which lowers cost and forces the model to condense information. Audio can also be used to make video
+processing cheaper by previewing which frames matter~\cite{gao2020listen}. Self-supervised
+audio-visual pretraining, such as contrastive masked autoencoders~\cite{gong2023cavmae}, learns joint
+representations from large unlabelled corpora. Modality dropout~\cite{neverova2016moddrop} makes a fused model
+robust to missing inputs and is used by U-FFIA to train a single model for audio, video or both. HCF
+keeps the shared bottleneck tokens of~\cite{nagrani2021mbt}, but differs in two ways: the bottleneck
+reads both modalities \emph{in parallel}, and their views and interactions are combined by an
+algebraic product rather than by sequential attention or concatenation. We further attach HCF at any
+subset of depths, with feedback into both streams.
+
+\paragraph{Hypercomplex neural networks.}
+Complex-valued~\cite{trabelsi2018complex} and quaternion networks~\cite{gaudet2018quaternion,zhu2018qcnn,parcollet2018qcnn,parcollet2019qrnn}
+replace real weights with hypercomplex ones and the product with the Hamilton product. This shares
+weights across components, cutting parameters by up to the algebra's dimension, and encodes
+inter-component relations as a structural prior. Parameterised hypercomplex multiplication (PHM)
+learns the multiplication rule itself for any dimension $n$~\cite{zhang2021phm}, and was extended to
+convolutions~\cite{grassucci2022phnn}. Higher algebras (octonions and sedenions) have been applied to
+spatiotemporal forecasting and segmentation, matching or beating real networks at a fraction of the
+parameters~\cite{bojesomo2020sedenion,bojesomo2023octonion}. A unified treatment of these layers for
+spatiotemporal data~\cite{bojesomo2024hypercomplex} provides the layers used in this work. Existing
+hypercomplex models mostly assign the \emph{channels} of one input to the algebra's components (for
+example the colour channels of an image). To our knowledge, the components have not been used to
+carry distinct modality views and their interactions in audio-visual fusion, nor applied to FFIA.
+\todo{Check recent hypercomplex multimodal fusion papers and cite them if any are close.}
+
+\paragraph{Efficient models and knowledge distillation.}
+Efficient audio models include CNNs pretrained on AudioSet such as PANNs~\cite{kong2020panns}, and
+EfficientAT, which distils transformer ensembles into MobileNet-style CNNs~\cite{schmid2023efficientat}.
+Simple pooling front-ends reduce the cost of spectrogram models further~\cite{liu2023simpf}.
+For video, X3D~\cite{feichtenhofer2020x3d} and MoViNets~\cite{kondratyuk2021movinets} expand or search
+mobile-sized 3-D networks; S3D~\cite{xie2018s3d} separates spatial and temporal convolutions.
+Knowledge distillation transfers a large teacher's soft predictions~\cite{hinton2015kd}, intermediate
+representations, or the relations between samples~\cite{park2019rkd} to a smaller student~\cite{gou2021kdsurvey}.
+In FFIA, U-FFIA distils single-modality teachers into its unified model~\cite{cui2024uffia}, and
+HMKD~\cite{hmkd2026} distils from an EfficientAT and MoViNet teacher pair. We combine the logit,
+embedding and relation levels in one objective, and ablate the choice of teacher systematically.

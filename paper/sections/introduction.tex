@@ -1,0 +1,81 @@
+% ============================================================================
+%  Introduction -- \input{sections/introduction}
+%  Contribution bullets that depend on results carry \todo notes: keep, rephrase or drop
+%  them once Tables in sections/results.tex are filled.
+% ============================================================================
+\section{Introduction}
+\label{sec:intro}
+
+Feed is one of the largest operating costs in aquaculture, and how it is dispensed directly affects
+productivity, water quality and fish welfare~\cite{atoum2014feeding,yang2021smartfish}. Most feeding
+machines still run on fixed schedules or on the judgement of an operator, so fish are underfed when
+appetite is high and overfed when it is low. The uneaten feed is wasted and degrades the water.
+\emph{Fish feeding intensity assessment} (FFIA) estimates the appetite of a group of fish during feeding,
+usually as an ordinal level from \textsc{None} to \textsc{Strong}. It is the sensing step needed to close
+the loop between feeding machines and the fish~\cite{an2021behaviour,zhou2019ffia}.
+
+Most FFIA systems are vision-based. They classify single images~\cite{zhou2019ffia,yang2021effnetb2,zhang2023msif}
+or exploit motion through optical flow and 3-D convolutions~\cite{ubina2021ffia}. Vision captures
+aggregation and surface agitation directly, but it suffers from low light, reflections, turbidity
+and occlusion, and video models are expensive to run on site. Acoustic FFIA uses the sounds of feeding,
+such as chewing, tail slapping and splashing, picked up by a hydrophone~\cite{cui2022affia3k}. It is
+unaffected by lighting and cheap to process, but it is sensitive to the bubble and pump noise that is
+ever-present in recirculating systems. The two modalities fail under different conditions, which
+makes them natural partners. The release of AV-FFIA~\cite{cui2024uffia}, 27,000 synchronised
+audio-visual clips of \textit{Oplegnathus punctatus} labelled into four intensities, made this
+combination measurable. U-FFIA showed that fusion beats either modality, especially in noise, and
+that a unified model can lower the cost~\cite{cui2024uffia}.
+
+Accuracy on AV-FFIA has since risen quickly, with later works reporting 95--98\%
+\cite{acafnet2025,dynagate2026,hmmfnet2026,hmkd2026,ldmf2026}. Three problems remain open, however.
+\emph{First, efficiency.} The fusion models of~\cite{cui2024uffia} cost 15--69\,GMACs and 21--48\,M
+parameters per two-second clip. Recent compact models help, but parameter count, memory and the
+cost of transmitting models to edge devices on farms still matter.
+\emph{Second, how and where to fuse.} Fusion is usually done once, by concatenation, cross-attention
+or attention bottlenecks, at a fixed depth. On AV-FFIA these choices behave very differently: the
+attention bottleneck (MBT~\cite{nagrani2021mbt}) reached only 72.4\% against 91.7\% for cross-attention
+in~\cite{cui2024uffia}, and there has been no systematic study of the depth at which audio and video
+should interact.
+\emph{Third, evaluation.} Published numbers rest on incompatible protocols: the official random split,
+5-fold cross-validation, and filtered subsets of the data. Moreover, every split is drawn at clip level,
+although the clips are consecutive two-second segments of one-minute recordings. Near-duplicate
+neighbours can therefore appear in both training and test, which may inflate accuracy.
+
+Hypercomplex neural networks offer a principled answer to the first two problems.
+A layer over a hypercomplex algebra (complex numbers, quaternions, octonions, sedenions) shares one set
+of weight blocks across all components through the algebra's multiplication table. This divides the
+parameter count by the algebra's dimension~$n$ while still mixing every component with every other
+\cite{parcollet2019qrnn,zhang2021phm,grassucci2022phnn}. In spatiotemporal tasks such networks match
+or exceed their real-valued counterparts at a fraction of the parameters
+\cite{bojesomo2024hypercomplex,bojesomo2023octonion,bojesomo2020sedenion}. The same property suggests a
+new view of fusion. If the audio view, the video view and their interaction are taken as the
+\emph{components} of one hypercomplex number, a single Hamilton product mixes all of them through
+shared weights. Cross-modal interaction then becomes a property of the algebra rather than something
+a dense layer must learn from limited data.
+
+We build on this view and propose \textbf{HyperAVNet}, a hypercomplex audio-visual network for FFIA. Its
+contributions are as follows.
+\begin{itemize}
+  \item A \textbf{fully hypercomplex audio-visual architecture}: Hamilton-product weight sharing in the
+  convolutional backbones, attention, fusion and heads. It has 2.14\,M parameters, $3.7\times$ fewer than
+  the identical real-valued network, at 1.18\,GMACs per clip; that is $10\times$ fewer parameters and
+  $13\times$ fewer MACs than U-FFIA.
+  \item \textbf{Hypercomplex component fusion (HCF)}: modality-specific views and their multiplicative
+  agreement are encoded as the components of a quaternion (or octonion) and mixed by one Hamilton
+  product. Its parameter cost does not depend on the number of interaction terms.
+  \item A \textbf{deep-to-early fusion study with zero-initialised cross-modal feedback}, which shows where
+  audio-visual interaction helps on AV-FFIA. \todo{one-line finding, e.g. ``fusing from the second stage
+  onwards is best''}
+  \item \textbf{Multi-level distillation} at the logit, embedding and relation levels from pretrained
+  audio and video teachers, together with a \textbf{teacher ablation} over ten backbone pairs that
+  tests whether a stronger teacher yields a stronger student. \todo{one-line finding}
+  \item A \textbf{reproducible evaluation} under three protocols (the official split, 5-fold
+  cross-validation, and a new \emph{session-disjoint} split), with a noise and missing-modality
+  robustness study. \todo{State the headline: accuracy relative to the strongest comparable result,
+  and the gap between clip-level and session-disjoint accuracy.}
+\end{itemize}
+
+The rest of the paper is organised as follows. Section~\ref{sec:related} reviews FFIA, audio-visual
+fusion, hypercomplex networks and efficient models. Section~\ref{sec:method} presents HyperAVNet,
+Section~\ref{sec:setup} the experimental set-up, and Section~\ref{sec:results} the results and
+ablations.
