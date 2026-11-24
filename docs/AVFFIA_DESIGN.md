@@ -115,7 +115,8 @@ The Hamilton product forces *every* output component to be a signed mix of *ever
 component through one shared weight set. Cross-modal interaction terms are therefore built
 into the algebra rather than learned by a dense `4D x D` mixer. The mixer has `D²` parameters
 whatever the algebra, so the octonion version adds interaction terms at no parameter cost.
-`mbt` (an MBT bottleneck, the U-FFIA baseline fusion, built here from hypercomplex blocks) and
+`mbt` (an MBT bottleneck, one of the fusion baselines benchmarked in the U-FFIA paper, where it
+scored 0.724; built here from hypercomplex blocks) and
 `concat` are included as fusion-operator ablations.
 
 ### 2.3 Fusion depth: the deep-to-early ablation axis

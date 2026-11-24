@@ -15,8 +15,8 @@ blocks at several stages gives early, mid, late or progressive fusion (see
   and are mixed by one hypercomplex linear layer. The Hamilton product makes every output
   component a signed combination of every input component, using one shared set of weights,
   so cross-modal interactions come at ``1/algebra`` of the parameter cost of a dense mixer.
-* ``mbt``: an MBT-style attention bottleneck (Nagrani et al., 2021; also used as the U-FFIA
-  baseline) built from hypercomplex transformer blocks.
+* ``mbt``: an MBT-style attention bottleneck (Nagrani et al., 2021; one of the fusion baselines
+  benchmarked in the U-FFIA paper, where it scored 0.724) built from hypercomplex transformer blocks.
 * ``concat``: a gated concatenation baseline (real or hypercomplex linear).
 """
 from __future__ import annotations

@@ -475,7 +475,7 @@ class TimmFrameBackbone(Backbone):
 class TorchvisionVideoBackbone(Backbone):
     """Kinetics-400 pretrained 3D CNNs from torchvision: ``r2plus1d_18``, ``r3d_18``, ``mc3_18``, ``s3d``.
 
-    S3D is the video backbone of the U-FFIA reference model.
+    Pretrained S3D is the best video model (0.898) and the video distillation teacher in U-FFIA.
     """
 
     # stage taps: residual layers for the ResNet-style models, indices into ``features`` for S3D
