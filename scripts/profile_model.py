@@ -34,6 +34,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('-c', '--config', required=True)
 ap.add_argument('--set', action='append', default=[])
 ap.add_argument('--batch', type=int, default=1)
+ap.add_argument('--out', help='also save the JSON here, e.g. runs/profile_student_hyper.json (read by make_paper_assets.py)')
 args = ap.parse_args()
 cfg = load_config(args.config, args.set)
 d = cfg['data']
@@ -44,7 +45,15 @@ x = (torch.randn(args.batch, int(d['sample_rate'] * d['seconds']), device=dev),
 dep = reparameterize_hypercomplex(copy.deepcopy(m))
 parts = {k: count_parameters(getattr(m, k)) for k in ('audio', 'video')}
 parts['fusion+heads'] = count_parameters(m) - sum(parts.values())
-print(json.dumps({'params_M': count_parameters(m) / 1e6, 'stored_params_by_part_M': {k: v / 1e6 for k, v in parts.items()},
-                  'deployed_dense_params_M': count_parameters(dep) / 1e6, 'GFLOPs_per_clip': count_flops(m, *x) / 1e9 / args.batch,
-                  f'latency_ms_bs{args.batch}_{dev.type}': latency(m, x), f'latency_deployed_ms_bs{args.batch}_{dev.type}': latency(dep, x)},
-                 indent=1))
+res = {'name': cfg.get('name'), 'device': torch.cuda.get_device_name(0) if dev.type == 'cuda' else 'cpu',
+       'batch': args.batch, 'params_M': count_parameters(m) / 1e6,
+       'stored_params_by_part_M': {k: v / 1e6 for k, v in parts.items()},
+       'deployed_dense_params_M': count_parameters(dep) / 1e6,
+       'GFLOPs_per_clip': count_flops(m, *x) / 1e9 / args.batch,
+       'latency_ms': latency(m, x), 'latency_deployed_ms': latency(dep, x)}
+res['GMACs_per_clip'] = res['GFLOPs_per_clip'] / 2
+print(json.dumps(res, indent=1))
+if args.out:
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    with open(args.out, 'w') as f:
+        json.dump(res, f, indent=1)

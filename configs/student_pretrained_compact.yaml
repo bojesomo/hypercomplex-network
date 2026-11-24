@@ -1,0 +1,31 @@
+# HyperAVNet-P: compact *pretrained* backbones + the hypercomplex fusion network.
+# The from-scratch student (configs/student_hyper.yaml) plateaus near 91-92% on AV-FFIA, while
+# the pretrained teacher reaches 96.2%. This variant keeps the student's budget (~3 M params,
+# ~1 GMAC) but starts the backbones from AudioSet / Kinetics weights:
+#   audio  EfficientAT mn04_as (0.98 M incl. head, AudioSet mAP .432)
+#   video  MoViNet-A0 Base (Kinetics-600) at 172x172
+# Everything new (projectors, HCF fusion, heads) is hypercomplex. Train it with or without KD.
+_base_: base.yaml
+name: student_pretrained_compact
+data: {size: 256, crop: 224, num_frames: 16}
+train: {epochs: 40, batch_size: 32, lr: 1.0e-3, backbone_lr_mult: 0.3}
+model:
+  num_classes: 4
+  dim: 192
+  n_divs: 4
+  fusion: hcf
+  fusion_algebra: 4
+  fusion_stages: [1, 2, 3]
+  num_bottleneck: 8
+  num_heads: 4
+  audio:
+    type: efficientat
+    model_name: mn04_as
+    checkpoint: pretrained/mn04_as_mAP_432.pt
+    in_sample_rate: 64000
+  video:
+    type: movinet
+    model_name: A0
+    checkpoint: pretrained/modelA0_statedict_v3
+    size: [172, 172]
+    grid: 2

@@ -204,6 +204,25 @@ and how much the audio stream contributes to separating them.}
   \label{fig:confusion}
 \end{figure}
 
+\subsection{Deployment}
+\label{sec:deploy}
+Table~\ref{tab:deploy} measures the cost of the two forms of the model on \resDeployDevice{} (batch 1).
+In training form, every hypercomplex kernel is assembled from its $n$ blocks at each forward pass.
+After reparameterisation (Sec.~\ref{sec:hyper}) the kernels are dense, and latency falls from
+\resLatTrain\,ms to \resLatDeploy\,ms. The trade-off is explicit: the hypercomplex form stores and
+transmits $n\times$ fewer parameters (2.14\,M), while the deployed dense form holds 7.88\,M parameters
+in memory and runs faster. A device can therefore receive the compact model and expand it once at load
+time.
+
+\begin{table}[t]
+  \centering
+  \caption{Training-form versus reparameterised (deployed) model. Stored: parameters kept on disk and
+  transmitted; Dense: parameters in memory after reparameterisation.}
+  \label{tab:deploy}
+  \footnotesize
+  \IfFileExists{tables/deploy.tex}{\resizebox{\columnwidth}{!}{\input{tables/deploy.tex}}}{\fbox{run \texttt{profile\_model.py --out}}}
+\end{table}
+
 \subsection{Limitations}
 \label{sec:limitations}
 Hypercomplex layers reduce stored parameters but not arithmetic, so the compute savings come from the

@@ -49,6 +49,13 @@ X3D-M~\cite{feichtenhofer2020x3d}, VideoMAE-B~\cite{tong2022videomae}, and MoViN
 T10 reproduces the EfficientAT + MoViNet-A0 teacher pair of~\cite{hmkd2026}. Each teacher is trained with
 the same recipe, and a student is distilled from each.
 
+\paragraph{Student variants.} HyperAVNet-Q is the fully hypercomplex student of Sec.~\ref{sec:method},
+trained from scratch. HyperAVNet-P keeps the hypercomplex projectors, HCF fusion and heads, but replaces
+the student backbones with compact pretrained networks: EfficientAT mn04~\cite{schmid2023efficientat} for
+audio and MoViNet-A0~\cite{kondratyuk2021movinets} for video at $172^{2}$. This gives 1.89\,M parameters
+and 0.88\,GMACs, and tests how much of the gap to the teacher is due to pretraining rather than
+architecture.
+
 \paragraph{Baselines.} We compare against the results published by
 \cite{cui2024uffia,acafnet2025,dynagate2026,hmmfnet2026,hmkd2026,ldmf2026}, each with its stated protocol,
 and against models we re-train under our protocol: a real-valued late-concatenation model with the
