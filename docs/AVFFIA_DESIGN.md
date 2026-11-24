@@ -230,3 +230,34 @@ models are small.
 
 All links, and how each was verified, are in [PRETRAINED_MODELS.md](PRETRAINED_MODELS.md).
 Run `bash scripts/download_pretrained.sh --cache`.
+
+## AV-MixNet: pretrained CNNs with cross-modal mixers (`arch: mixnet`)
+
+`configs/mixnet_effat_x3d.yaml` (+ `_kd`): EfficientAT mn10 (audio, AudioSet) and X3D-M
+(video, Kinetics-400) run stage by stage. A **cross-modal mixer** (`avffia/cnn_mixer.py`) sits after
+stages 1, 2 and 3 of both CNNs:
+
+- **read**: pool each map to a small grid that keeps time (audio T×2 frequency tokens, video T×2×2),
+  project with hypercomplex linear layers, and add modality, slot and **shared time** embeddings;
+- **mix**: `sra` (SegFormer-style efficient joint attention, keys/values reduced to one token per
+  modality and time step, followed by a Mix-FFN), `full`, `time` (time-axis only), or `hcf` (time
+  queries plus hypercomplex component fusion);
+- **write**: any of `xattn` (cross-attention, upsampled onto the map), `film` (time-resolved
+  scale-and-shift, zero-initialised), `guide` (audio→spatial and video→frequency guidance maps;
+  `model.set_record_maps(True)` keeps them in `mixer.last_maps` for figures);
+- the summed write passes through a **learnable per-channel output scale**, initialised by a depth
+  schedule (`scale_start` 0.01 → `scale_end` 0.1). `model.mixer_scales()` reports the learned values
+  ("where the model chose to fuse"); they are saved per epoch and in `result.json`.
+
+A SegFormer-style head aggregates the mixed-stage summaries over time, alongside last-stage audio
+and video features and the auxiliary unimodal heads. Size: 5.8 M params (4.98 M in the two CNNs),
+about 4.9 GMACs at 16×224², with the mixers adding about 0.1–0.2 GMACs.
+
+**Training schedule** (`train.freeze_fraction: 0.25`): the backbone weights are frozen for the first
+25% of steps. Their activations still carry gradients, so the mixers before later stages train
+through them. The backbones are then unfrozen at `backbone_lr_mult` (0.1×) with a
+`unfreeze_warmup_epochs` warm-up. `bn_eval: true` keeps the pretrained BatchNorm statistics fixed.
+
+Ablations: `SEEDS="0 1 2" bash scripts/run_mixer_ablation.sh` covers the mix and write operators,
+the mixed stages, a flat vs scheduled scale, and the freeze schedule. `make_paper_assets.py`
+writes `tables/mixnet_ablation.tex` and `figures/mixer_scales.pdf`.

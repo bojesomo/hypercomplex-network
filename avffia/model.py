@@ -169,5 +169,11 @@ class HyperAVNet(nn.Module):
         return self._heads(z, a_last, v_last, fused, keep)
 
 
-def build_model(cfg: dict) -> HyperAVNet:
+def build_model(cfg: dict) -> nn.Module:
+    """``arch: hyperavnet`` (default) or ``arch: mixnet`` (pretrained CNNs + cross-modal mixers)."""
+    cfg = dict(cfg)
+    arch = cfg.pop('arch', 'hyperavnet')
+    if arch == 'mixnet':
+        from .mixnet import AVMixNet
+        return AVMixNet(**cfg)
     return HyperAVNet(**cfg)

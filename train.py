@@ -82,21 +82,32 @@ def param_groups(model, lr, wd, backbone_lr_mult):
         key = (is_backbone, no_wd)
         if key not in groups:
             groups[key] = {'params': [], 'lr': lr * (backbone_lr_mult if is_backbone else 1.0),
-                           'weight_decay': 0.0 if no_wd else wd}
+                           'weight_decay': 0.0 if no_wd else wd, 'is_backbone': is_backbone}
         groups[key]['params'].append(p)
     for g in groups.values():
         g['base_lr'] = g['lr']
     return list(groups.values())
 
 
-def cosine_lr(opt, step, total, warmup, min_ratio=0.01):
+def head_lr(opt):
+    """Learning rate of the new (non-backbone) modules, for display."""
+    return next((g['lr'] for g in opt.param_groups if not g.get('is_backbone')), opt.param_groups[0]['lr'])
+
+
+def cosine_lr(opt, step, total, warmup, min_ratio=0.01, unfreeze_step=None, unfreeze_warmup=0):
+    """Cosine schedule with warm-up. With a freeze schedule, the pretrained-backbone groups get
+    zero learning rate before ``unfreeze_step`` and a linear warm-up over ``unfreeze_warmup``
+    steps after it (on top of the global schedule)."""
     if step < warmup:
         f = (step + 1) / warmup
     else:
         t = (step - warmup) / max(1, total - warmup)
         f = min_ratio + (1 - min_ratio) * 0.5 * (1 + math.cos(math.pi * t))
     for g in opt.param_groups:
-        g['lr'] = g['base_lr'] * f
+        fb = 1.0
+        if g.get('is_backbone') and unfreeze_step is not None:
+            fb = 0.0 if step < unfreeze_step else min(1.0, (step - unfreeze_step + 1) / max(1, unfreeze_warmup))
+        g['lr'] = g['base_lr'] * f * fb
 
 
 class EMA:
@@ -325,6 +336,19 @@ def main():
     epochs = tcfg['epochs']
     total = epochs * len(loaders['train'])
     warmup = int(tcfg.get('warmup_epochs', 1) * len(loaders['train']))
+    # Freeze -> unfreeze schedule for pretrained backbones (linear-probe-then-fine-tune): for the
+    # first `freeze_fraction` of training only the new modules learn. Backbone *weights* are frozen
+    # (requires_grad=False) but activations still carry gradients, so mixers placed between
+    # backbone stages are trained through the frozen later stages.
+    backbone_params = [p for g in opt.param_groups if g.get('is_backbone') for p in g['params']]
+    freeze_fraction = float(tcfg.get('freeze_fraction', 0.0))
+    unfreeze_step = int(freeze_fraction * total) if freeze_fraction > 0 and backbone_params else None
+    unfreeze_warmup = int(tcfg.get('unfreeze_warmup_epochs', 1) * len(loaders['train']))
+    if unfreeze_step is not None:
+        for p in backbone_params:
+            p.requires_grad_(False)
+        print(f'backbones frozen for {unfreeze_step}/{total} steps ({freeze_fraction:.0%}), then '
+              f'unfrozen at lr x{tcfg.get("backbone_lr_mult", 0.1)} with a {unfreeze_warmup}-step warm-up', flush=True)
 
     best, step, log = -1.0, 0, []
     show = tcfg.get('progress', True)
@@ -336,7 +360,11 @@ def main():
         bar = Progress(loaders['train'], f'ep {ep + 1}/{epochs}', enabled=show, log_every=log_every)
         for b in bar:
             b = to_device(b, device)
-            cosine_lr(opt, step, total, warmup)
+            if unfreeze_step is not None and step == unfreeze_step:
+                for p in backbone_params:
+                    p.requires_grad_(True)
+                bar.write(f'step {step}: backbones unfrozen')
+            cosine_lr(opt, step, total, warmup, unfreeze_step=unfreeze_step, unfreeze_warmup=unfreeze_warmup)
             with torch.autocast(device.type, dtype=amp_dtype, enabled=amp_dtype is not None):
                 out = forward(model, b)
                 losses = crit(out, b['target'])
@@ -362,7 +390,7 @@ def main():
             k = bar.i  # running means over the epoch so far; components are in the epoch summary
             extra = {'kd': run['kd'] / k} if 'kd' in run else {}
             bar.update(loss=sum(run.values()) / k, **extra, acc=correct / seen,
-                       lr=f"{opt.param_groups[0]['lr']:.1e}", gnorm=float(gnorm),
+                       lr=f"{head_lr(opt):.1e}", gnorm=float(gnorm),
                        sps=f"{seen / (time.time() - t0):.0f}/s", mem=gpu_mem())
         bar.close()
         n = max(1, len(loaders['train']))
@@ -371,6 +399,8 @@ def main():
         rec = {'epoch': ep, 'time': round(time.time() - t0, 1), **{k: v / n for k, v in run.items()},
                'val_acc': val['acc'], 'val_f1': val['macro_f1'],
                'val_audio_acc': val.get('audio_only_acc'), 'val_video_acc': val.get('video_only_acc')}
+        if hasattr(model, 'mixer_scales'):  # AV-MixNet: learned per-stage fusion scales
+            rec['mixer_scales'] = model.mixer_scales()
         log.append(rec)
         with open(os.path.join(out_dir, 'log.jsonl'), 'a') as f:  # full record per epoch
             f.write(json.dumps(rec) + '\n')
@@ -392,6 +422,8 @@ def main():
     # deployable model: hypercomplex kernels folded into dense layers (same outputs, faster)
     torch.save(reparameterize_hypercomplex(copy.deepcopy(model).cpu()).state_dict(), os.path.join(out_dir, 'deploy.pt'))
     result = {'name': cfg.get('name'), **stats, 'best_val_acc': best, 'test': test}
+    if hasattr(model, 'mixer_scales'):
+        result['mixer_scales'] = model.mixer_scales()
     with open(os.path.join(out_dir, 'result.json'), 'w') as f:
         json.dump({'result': result, 'log': log}, f, indent=1)
     print(json.dumps(result, indent=1))

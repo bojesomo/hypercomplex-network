@@ -1,0 +1,46 @@
+# AV-MixNet: pretrained EfficientAT mn10 (audio, AudioSet) + X3D-M (video, Kinetics-400) with
+# cross-modal mixers after stages 1, 2 and 3 of both CNNs (read -> mix -> write).
+#   mixer.mix:   sra (SegFormer-style efficient joint attention, default) | full | time | hcf
+#   mixer.write: any of xattn (cross-attention + upsample), film (time-wise scale/shift),
+#                guide (audio->spatial and video->frequency guidance maps)
+# Training: backbones frozen for the first 25% (mixers + heads learn), then unfrozen at 0.1x lr
+# with a 1-epoch warm-up. BatchNorm statistics of the pretrained CNNs stay fixed (bn_eval).
+# Weights: bash scripts/download_pretrained.sh --cache  (EfficientAT file + pytorchvideo X3D-M)
+_base_: base.yaml
+name: mixnet_effat_x3d
+data: {size: 256, crop: 224, num_frames: 16}   # X3D-M's native input is 16 x 224^2
+train:
+  epochs: 40
+  batch_size: 16
+  lr: 1.0e-3
+  backbone_lr_mult: 0.1
+  freeze_fraction: 0.25
+  unfreeze_warmup_epochs: 1
+model:
+  arch: mixnet
+  num_classes: 4
+  dim: 192
+  n_divs: 4
+  mix_stages: [1, 2, 3]
+  scale_start: 0.01            # learnable depth-scheduled mixer output scale (first -> last mixer)
+  scale_end: 0.1
+  head_time: 8
+  modality_dropout: 0.1
+  mixer:
+    mix: sra
+    write: [xattn, film]
+    time_tokens: 16
+    audio_freq_tokens: 2
+    video_grid: 2
+  audio:
+    type: efficientat
+    model_name: mn10_as
+    checkpoint: pretrained/mn10_as_mAP_471.pt
+    in_sample_rate: 64000
+    bn_eval: true
+  video:
+    type: pv_video
+    model_name: x3d_m
+    pretrained: true
+    grid: 2
+    bn_eval: true

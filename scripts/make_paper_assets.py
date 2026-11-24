@@ -107,6 +107,10 @@ def aggregate(runs):
             for k, v in x.get('robustness', {}).items():
                 rob[k].append(100 * v)
         a['robust'] = {k: mean_std(v) for k, v in rob.items()}
+        sc = [r['mixer_scales'] for r in rs if r.get('mixer_scales')]
+        if sc:  # AV-MixNet: mean learned output scale per stage and modality, averaged over seeds
+            a['mixer_scales'] = {st: {m: sum(x[st][m] for x in sc) / len(sc) for m in ('audio', 'video')}
+                                 for st in sc[0]}
         out[g] = a
     return out
 
@@ -159,6 +163,8 @@ def make_tables(G, out):
             (OURS, '\\textbf{HyperAVNet-Q (KD)}'),
             ('student_pretrained_compact', 'HyperAVNet-P (pretrained, no KD)'),
             ('student_pretrained_compact_kd', 'HyperAVNet-P (pretrained, KD)'),
+            ('mixnet_effat_x3d', 'AV-MixNet: EfficientAT + X3D-M'),
+            ('mixnet_effat_x3d_kd', 'AV-MixNet: EfficientAT + X3D-M (KD)'),
             ('student_hyper_o_kd', 'HyperAVNet-O (KD)')]
     first = len(rows)
     for g, label in ours:
@@ -241,6 +247,20 @@ def make_tables(G, out):
     a = G.get(OURS)
     rows = [[c, num(a['per_class_f1'][i], 1) if a else '--'] for i, c in enumerate(CLASSES)]
     tabular(os.path.join(T, 'per_class.tex'), 'lr', ['Class', 'F1 (\\%)'], rows)
+
+    # 9. AV-MixNet ablation (scripts/run_mixer_ablation.sh, runs M_<variant>_s<k>)
+    mix = [('M_mix_sra', 'Mix: SRA (SegFormer-style), write xattn+FiLM (default)'), ('M_mix_full', 'Mix: full joint attention'),
+           ('M_mix_time', 'Mix: time-axis'), ('M_mix_hcf', 'Mix: HCF (quaternion components)'),
+           ('M_write_xattn', 'Write: cross-attention only'), ('M_write_film', 'Write: FiLM only'),
+           ('M_write_guide', 'Write: guidance maps only'), ('M_write_all', 'Write: all three'),
+           ('M_late_only', 'Mix after stage 3 only'), ('M_stages_23', 'Mix after stages 2, 3'),
+           ('M_stages_0123', 'Mix after every stage'), ('M_no_mixer_scale1', 'Flat output scale (0.1)'),
+           ('M_no_freeze', 'No freezing (fine-tune from start)'), ('M_freeze50', 'Freeze 50\\%'),
+           ('M_bn_train', 'BatchNorm statistics updated')]
+    rows = [[lab, num(G[g]['params'] if g in G else None), num(G[g]['gmacs'] if g in G else None),
+             pm(get(G, g)), pm(get(G, g, 'f1')), pm(get(G, g, 'acc_a')), pm(get(G, g, 'acc_v'))] for g, lab in mix]
+    tabular(os.path.join(T, 'mixnet_ablation.tex'), 'lrrrrrr',
+            ['Variant', 'Params (M)', 'GMACs', 'Acc.', 'F1', 'A-only', 'V-only'], rows, midrules=(4, 8, 11))
 
 
 # ----------------------------------------------------------------------------- deployment
@@ -415,6 +435,21 @@ def make_figures(G, out):
         ax.set_xlabel('Teacher accuracy (%)')
         ax.set_ylabel('Distilled student accuracy (%)')
         fig.savefig(os.path.join(F, 'teacher_student.pdf'))
+        plt.close(fig)
+
+    # Fig. G: learned AV-MixNet mixer scales per stage (where the model chose to fuse)
+    src = next((G[g] for g in ('mixnet_effat_x3d', 'M_mix_sra', 'mixnet_effat_x3d_kd') if g in G and G[g].get('mixer_scales')), None)
+    if src:
+        st = sorted(src['mixer_scales'], key=int)
+        xs = range(len(st))
+        fig, ax = plt.subplots(figsize=(3.0, 2.0))
+        w = 0.36
+        ax.bar([x - w / 2 - 0.01 for x in xs], [src['mixer_scales'][k]['audio'] for k in st], w, color=C1, label='into audio')
+        ax.bar([x + w / 2 + 0.01 for x in xs], [src['mixer_scales'][k]['video'] for k in st], w, color=C2, label='into video')
+        ax.set_xticks(list(xs), [f'stage {k}' for k in st])
+        ax.set_ylabel('Learned output scale')
+        ax.legend(loc='upper left')
+        fig.savefig(os.path.join(F, 'mixer_scales.pdf'))
         plt.close(fig)
 
     # Fig. F: confusion matrix of the proposed model (row-normalised, sequential blue)

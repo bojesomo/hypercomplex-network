@@ -30,11 +30,20 @@ from .hyper import HyperInvertedResidual, hconv
 class Backbone(nn.Module):
     stage_dims: List[int]
     stagewise: bool = False
+    # Layout of a stage feature map after the batch and channel dims, for stage-wise backbones:
+    # 'tf' (time, freq), 'ft' (freq, time), 'thw' (time, height, width). Used by the CNN mixer.
+    map_layout: Optional[str] = None
 
-    def __init__(self, freeze: bool = False, unfreeze: Sequence[str] = ()):
+    def __init__(self, freeze: bool = False, unfreeze: Sequence[str] = (), bn_eval: bool = False):
         super().__init__()
         self.freeze = freeze
         self.unfreeze = tuple(unfreeze)
+        self.bn_eval = bn_eval  # keep pretrained BatchNorm statistics fixed (small video batches)
+
+    @staticmethod
+    def modulate(h, gate):
+        """Channel-wise cross-modal modulation ``h * (1 + gate)``, with ``gate`` of shape ``(B, C)``."""
+        return h * (1 + gate.view(*gate.shape, *([1] * (h.dim() - 2))))
 
     # -- freezing ---------------------------------------------------------------------
     def _apply_freeze(self, module: nn.Module):
@@ -49,6 +58,10 @@ class Backbone(nn.Module):
 
     def train(self, mode: bool = True):
         super().train(mode)
+        if self.bn_eval:
+            for m in self.modules():
+                if isinstance(m, nn.modules.batchnorm._BatchNorm):
+                    m.eval()
         if self.fully_frozen:
             # Keep the BN statistics and dropout of a frozen extractor fixed, but let the
             # front-end apply SpecAugment when training.
@@ -287,6 +300,8 @@ class EfficientATBackbone(Backbone):
     # indices in net.features: 0 = stem, 1..15 = blocks, 16 = last conv. Stage ends: after
     # blocks 2 (C1), 5 (C2), 11 (C3) and the last conv (C4 + 1x1).
     _STAGE_ENDS = (3, 6, 12, 16)
+    stagewise = True
+    map_layout = 'ft'  # maps are (B, C, F, T)
 
     def __init__(self, model_name='mn10_as', checkpoint: Optional[str] = None, pretrained: bool = True,
                  in_sample_rate=64000, freqm=24, timem=40, **kw):
@@ -322,9 +337,21 @@ class EfficientATBackbone(Backbone):
         return out
 
     def forward_stages(self, wav):
+        return [self.tokens(i, f) for i, f in enumerate(self._run(self.prepare(wav)))]
+
+    # -- stage-wise interface (used by HyperAVNet feedback and AV-MixNet) -------------
+    def prepare(self, wav):
         with torch.autocast(device_type=wav.device.type, enabled=False):
-            x = self.mel(self.resample(wav.float())).unsqueeze(1)  # (B, 1, 128, T)
-        return [(f.mean(2) + f.amax(2)).transpose(1, 2) for f in self._run(x)]  # pool frequency
+            return self.mel(self.resample(wav.float())).unsqueeze(1)  # (B, 1, 128, T)
+
+    def run_stage(self, i, h):
+        start = 0 if i == 0 else self._STAGE_ENDS[i - 1] + 1
+        for layer in self.net.features[start:self._STAGE_ENDS[i] + 1]:
+            h = layer(h)
+        return h
+
+    def tokens(self, i, h):  # (B, C, F, T) -> (B, T, C), pooled over frequency
+        return (h.mean(2) + h.amax(2)).transpose(1, 2)
 
 
 class MoViNetBackbone(Backbone):
@@ -557,6 +584,19 @@ class PyTorchVideoBackbone(Backbone):
 
     def forward_stages(self, video):
         return [_grid_pool_tokens(f, self.grid) for f in self._run(self.norm(video))]
+
+    # -- stage-wise interface ------------------------------------------------------------
+    stagewise = True
+    map_layout = 'thw'  # maps are (B, C, T, H, W)
+
+    def prepare(self, video):
+        return self.net.blocks[0](self.norm(video))
+
+    def run_stage(self, i, h):
+        return self.net.blocks[1 + i](h)
+
+    def tokens(self, i, h):
+        return _grid_pool_tokens(h, self.grid)
 
 
 class VideoMAEBackbone(Backbone):

@@ -1,0 +1,24 @@
+\begin{tabular}{lrrrrrr}
+\toprule
+Variant & Params (M) & GMACs & Acc. & F1 & A-only & V-only \\
+\midrule
+Mix: SRA (SegFormer-style), write xattn+FiLM (default) & -- & -- & -- & -- & -- & -- \\
+Mix: full joint attention & -- & -- & -- & -- & -- & -- \\
+Mix: time-axis & -- & -- & -- & -- & -- & -- \\
+Mix: HCF (quaternion components) & -- & -- & -- & -- & -- & -- \\
+\midrule
+Write: cross-attention only & -- & -- & -- & -- & -- & -- \\
+Write: FiLM only & -- & -- & -- & -- & -- & -- \\
+Write: guidance maps only & -- & -- & -- & -- & -- & -- \\
+Write: all three & -- & -- & -- & -- & -- & -- \\
+\midrule
+Mix after stage 3 only & -- & -- & -- & -- & -- & -- \\
+Mix after stages 2, 3 & -- & -- & -- & -- & -- & -- \\
+Mix after every stage & -- & -- & -- & -- & -- & -- \\
+\midrule
+Flat output scale (0.1) & -- & -- & -- & -- & -- & -- \\
+No freezing (fine-tune from start) & -- & -- & -- & -- & -- & -- \\
+Freeze 50\% & -- & -- & -- & -- & -- & -- \\
+BatchNorm statistics updated & -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}

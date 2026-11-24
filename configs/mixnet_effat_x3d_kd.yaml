@@ -1,0 +1,7 @@
+# AV-MixNet distilled from the CNN10 + S3D teacher (96.2% in our runs).
+_base_: mixnet_effat_x3d.yaml
+name: mixnet_effat_x3d_kd
+distill:
+  teacher_config: configs/teacher_panns_s3d.yaml
+  teacher_ckpt: runs/teacher_panns_s3d/best.pt
+  loss: {T: 2.0, alpha: 0.7, beta: 1.0, gamma: 0.5, unimodal_weight: 0.5}

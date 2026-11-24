@@ -216,3 +216,49 @@ def test_ema_after_flop_count_with_hooked_backbone():
         for p in ema.model.video.parameters():
             p.add_(0.05 * torch.randn_like(p))
         assert not torch.allclose(ema.model(wav, vid)['logits'], a, atol=1e-5)
+
+
+# ----------------------------------------------------------------------------- AV-MixNet
+MIX_A = {'type': 'efficientat', 'model_name': 'mn04_as', 'pretrained': False, 'bn_eval': True}
+MIX_V = {'type': 'pv_video', 'model_name': 'x3d_s', 'pretrained': False, 'bn_eval': True}
+
+
+@pytest.mark.skipif(importlib.util.find_spec('pytorchvideo') is None, reason='pytorchvideo not installed')
+@pytest.mark.parametrize('mix,write', [('sra', ['xattn', 'film']), ('full', ['xattn']), ('time', ['film']),
+                                       ('hcf', ['xattn', 'film', 'guide']), ('sra', ['guide'])])
+def test_mixnet_variants(mix, write):
+    from avffia.model import build_model
+    m = build_model({'arch': 'mixnet', 'audio': MIX_A, 'video': MIX_V, 'dim': 32,
+                     'mix_stages': [1, 2, 3], 'mixer': {'mix': mix, 'write': write, 'time_tokens': 4}})
+    _check(m, WAV(), VID(s=64, t=8))
+    m.eval()
+    m.missing = 'audio'
+    with torch.no_grad():  # missing audio: audio content must not matter
+        a = m(WAV(), VID(s=64, t=8))['logits']
+    assert torch.isfinite(a).all()
+
+
+@pytest.mark.skipif(importlib.util.find_spec('pytorchvideo') is None, reason='pytorchvideo not installed')
+def test_mixnet_frozen_backbone_still_trains_early_mixer():
+    from avffia.model import build_model
+    m = build_model({'arch': 'mixnet', 'audio': MIX_A, 'video': MIX_V, 'dim': 32, 'mix_stages': [1, 3],
+                     'mixer': {'mix': 'sra', 'write': ['xattn', 'film'], 'time_tokens': 4}})
+    for n, p in m.named_parameters():  # freeze backbone weights only (as train.py does)
+        if n.startswith(('audio.net', 'video.net')):
+            p.requires_grad_(False)
+    m(WAV(), VID(s=64, t=8))['logits'].sum().backward()
+    assert all(p.grad is None for n, p in m.named_parameters() if n.startswith(('audio.net', 'video.net')))
+    # stage-1 mixer gets gradients through the frozen stages 2-3 (and through its own write path)
+    g = m.mixers['1'].read_v[0].weight.grad
+    assert g is not None and g.abs().sum() > 0
+
+
+def test_cosine_lr_unfreeze_schedule():
+    from train import cosine_lr
+    p1, p2 = torch.nn.Parameter(torch.zeros(1)), torch.nn.Parameter(torch.zeros(1))
+    opt = torch.optim.AdamW([{'params': [p1], 'base_lr': 1.0, 'lr': 1.0, 'is_backbone': True},
+                             {'params': [p2], 'base_lr': 1.0, 'lr': 1.0, 'is_backbone': False}])
+    cosine_lr(opt, 5, 100, 0, unfreeze_step=10, unfreeze_warmup=4)
+    assert opt.param_groups[0]['lr'] == 0.0 and opt.param_groups[1]['lr'] > 0.9
+    cosine_lr(opt, 11, 100, 0, unfreeze_step=10, unfreeze_warmup=4)
+    assert 0.4 < opt.param_groups[0]['lr'] / opt.param_groups[1]['lr'] < 0.6
